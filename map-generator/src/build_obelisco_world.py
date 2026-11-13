@@ -66,7 +66,7 @@ def main():
                 name = str(tags_row.get("name") or "")
                 width = number(tags_row.get("width"))
                 if width is None:
-                    if "9 de Julio" in name: width = 95
+                    if "9 de Julio" in name: width = 28
                     elif highway in ("motorway","trunk","primary"): width = 26
                     elif highway in ("secondary","tertiary"): width = 17
                     elif highway in ("residential","unclassified","living_street"): width = 10

@@ -341,7 +341,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
           for(let shop=0;shop<shopCount;shop++){
             const t=(shop+.5)/shopCount,wx=a.x+dx*t,wz=a.z+dz*t;
             const shopWidth=shopCount===1?Math.min(len*.62,8.5):Math.max(1.2,len/shopCount-.28);
-            chunk.storefronts.push({x:wx+nx*.11,y:1.45,z:wz+nz*.11,rotation:angle,sx:shopWidth,sy:2.35,sz:.075});
+            // Flat storefront glazing; no projecting frame or box.
+            chunk.storefronts.push({x:wx+nx*.025,y:1.45,z:wz+nz*.025,rotation:angle,sx:shopWidth,sy:2.35,sz:.012});
             if(f.architectureProfile === 'guerrin-2026'){
               const unitX=dx/len,unitZ=dz/len,frameHex=f.windowFrameHex;
               const frameItems=[
@@ -371,7 +372,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
             const t=(bay+.5)/count,wx=a.x+dx*t,wz=a.z+dz*t;
             const x=wx+nx*.085,z=wz+nz*.085;
             chunk.windows.push({x,y,z,rotation:angle,sx:windowWidth,sy:windowHeight,sz:.06});
-            const trimHex = /^#[0-9a-f]{6}$/i.test(f.windowFrameHex || f.facadeHexSecondary || '') ? (f.windowFrameHex || f.facadeHexSecondary)!.toLowerCase() : '';
+            const trimHex = ''; // Painted/flush window treatment; no raised metal frame.
             if (trimHex) {
               const trimBucket = chunk.sampledFrames.get(trimHex);
               const frame = {x,y,z,rotation:angle,sx:windowWidth*1.13,sy:windowHeight*1.1,sz:.04};
@@ -387,7 +388,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
             }
           }
         }
-        if (measuredFrontage && len >= 5) {
+        if (false && measuredFrontage && len >= 5) { // Skip generic projecting cornices and pilasters.
           const normalX=Math.sin(angle),normalZ=Math.cos(angle);
           const floorStep=height/Math.max(1,floorCount);
           const trimHex = /^#[0-9a-f]{6}$/i.test(f.facadeHexSecondary || '') ? f.facadeHexSecondary!.toLowerCase() : '';
@@ -536,7 +537,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       uv.setXY(v,(sx+uv.getX(v)*signCellW)/atlas.width,1-(sy+(1-uv.getY(v))*signCellH)/atlas.height);
     }
     plane.applyMatrix4(new THREE.Matrix4().compose(
-      new THREE.Vector3(best.x+Math.sin(best.angle)*.20,signProfile === 'guerrin-2026' ? 1.9 : 3.45,best.z+Math.cos(best.angle)*.20),
+      new THREE.Vector3(best.x+Math.sin(best.angle)*.035,signProfile === 'guerrin-2026' ? 1.9 : 3.45,best.z+Math.cos(best.angle)*.035),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0,best.angle,0)),
       new THREE.Vector3(width,signProfile === 'guerrin-2026' ? 1.12 : .78,1)
     ));

@@ -747,7 +747,7 @@ def main():
                 continue
             seen_smp.add(item[4])
             selected.append(item)
-            if len(selected) >= 120:
+            if len(selected) >= 36:
                 break
         print(f"Official frontage photo candidates selected: {len(selected)} (of {len(candidates)} matched parcel fronts)", flush=True)
 
@@ -764,7 +764,7 @@ def main():
                     metadata_response = requests.get(
                         "https://fotos.usig.buenosaires.gob.ar/getDatosFotos",
                         params={"smp": smp, "callback": "callback"},
-                        timeout=(10, 25),
+                        timeout=(6, 12),
                         headers={"User-Agent": "BuenosAiresPerfecta/1.0"}
                     )
                     metadata_response.raise_for_status()
@@ -786,7 +786,7 @@ def main():
                     image_response = requests.get(
                         "https://fotos.usig.buenosaires.gob.ar/getFoto",
                         params={"smp": smp, "i": 0, "w": 800, "h": 1000},
-                        timeout=(10, 35),
+                        timeout=(6, 18),
                         headers={"User-Agent": "BuenosAiresPerfecta/1.0"}
                     )
                     image_response.raise_for_status()

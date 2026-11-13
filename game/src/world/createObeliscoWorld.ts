@@ -38,7 +38,6 @@ type GeoFeature = {
   isPizzeria?: boolean;
   image?: string;
   photoDate?: string;
-  smp?: string;
 };
 export type ObeliscoWorldData = { origin: { lon: number; lat: number }; features: GeoFeature[]; counts: Record<string, number> };
 export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: number; height: number };
@@ -154,7 +153,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const roads: THREE.BufferGeometry[]=[];
   const sidewalks: THREE.BufferGeometry[]=[];
   type InstanceBox = {x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number};
-  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; sampledBuildings: Map<string, THREE.BufferGeometry[]>; windows: InstanceBox[]; frames: InstanceBox[]; storefronts: InstanceBox[]; balconies: InstanceBox[]; balconyRails: InstanceBox[]; rooftopUnits: InstanceBox[]; centerX:number; centerZ:number };
+  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; sampledBuildings: Map<string, THREE.BufferGeometry[]>; sampledFrames: Map<string, InstanceBox[]>; windows: InstanceBox[]; frames: InstanceBox[]; storefronts: InstanceBox[]; balconies: InstanceBox[]; balconyRails: InstanceBox[]; rooftopUnits: InstanceBox[]; centerX:number; centerZ:number };
   const chunkBuilds = new Map<string, ChunkBuild>();
   const CHUNK_SIZE = 256;
   const getChunk = (x:number,z:number):ChunkBuild => {
@@ -168,7 +167,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const detail=new THREE.Group();
       detail.name='chunk-details';
       group.add(geometryGroup,detail);
-      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),sampledBuildings:new Map(),windows:[],frames:[],storefronts:[],balconies:[],balconyRails:[],rooftopUnits:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
+      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),sampledBuildings:new Map(),sampledFrames:new Map(),windows:[],frames:[],storefronts:[],balconies:[],balconyRails:[],rooftopUnits:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
       group.userData.renderChunk=true;
       group.userData.detailGroup=detail;
       group.userData.centerX=chunk.centerX;
@@ -296,7 +295,15 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
             const t=(bay+.5)/count,wx=a.x+dx*t,wz=a.z+dz*t;
             const x=wx+nx*.085,z=wz+nz*.085;
             chunk.windows.push({x,y,z,rotation:angle,sx:1.05,sy:1.32,sz:.06});
-            chunk.frames.push({x,y,z,rotation:angle,sx:1.19,sy:1.46,sz:.04});
+            const trimHex = /^#[0-9a-f]{6}$/i.test(f.facadeHexSecondary || '') ? f.facadeHexSecondary!.toLowerCase() : '';
+            if (trimHex) {
+              const trimBucket = chunk.sampledFrames.get(trimHex);
+              const frame = {x,y,z,rotation:angle,sx:1.19,sy:1.46,sz:.04};
+              if (trimBucket) trimBucket.push(frame);
+              else chunk.sampledFrames.set(trimHex,[frame]);
+            } else {
+              chunk.frames.push({x,y,z,rotation:angle,sx:1.19,sy:1.46,sz:.04});
+            }
             if(residential && bay % 2 === 0 && len >= 10) {
               chunk.balconies.push({x:wx+nx*.42,y:y-.78,z:wz+nz*.42,rotation:angle,sx:1.72,sy:.12,sz:.62});
               chunk.balconyRails.push({x:wx+nx*.72,y:y-.38,z:wz+nz*.72,rotation:angle,sx:1.68,sy:.58,sz:.045});
@@ -312,6 +319,9 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       addMerged(chunk.geometryGroup,geometries,new THREE.MeshStandardMaterial({color:hex,roughness:.92}),true);
     }
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),WINDOW_FRAME,chunk.frames);
+    for (const [hex,items] of chunk.sampledFrames) {
+      addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:hex,roughness:.86}),items);
+    }
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),GLASS,chunk.windows);
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),GLASS,chunk.storefronts);
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0xaaa49a,roughness:.94}),chunk.balconies);

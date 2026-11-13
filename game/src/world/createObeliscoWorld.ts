@@ -12,7 +12,7 @@ type GeoFeature = {
   name?: string;
 };
 export type ObeliscoWorldData = { origin: { lon: number; lat: number }; features: GeoFeature[]; counts: Record<string, number> };
-export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: number };
+export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: number; height: number };
 
 const ROAD = new THREE.MeshStandardMaterial({ color: 0x353b3d, roughness: .98, side: THREE.DoubleSide });
 const GREEN = new THREE.MeshStandardMaterial({ color: 0x6e9168, roughness: 1, side: THREE.DoubleSide });
@@ -74,7 +74,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const mesh=buildingMesh(ring,data.origin,height,mat); group.add(mesh);
       const pts=ring.map(([lon,lat])=>local(lon,lat,data.origin));
       const xs=pts.map(p=>p.x),zs=pts.map(p=>p.z);
-      colliders.push({minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs)});
+      colliders.push({minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs),height});
     }
   }
 

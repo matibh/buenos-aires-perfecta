@@ -17,20 +17,22 @@ GREEN_URL = "https://data.buenosaires.gob.ar/dataset/juqdkmgo-96/resource/2a9af9
 STREET_URL = "https://data.buenosaires.gob.ar/dataset/juqdkmgo-30/resource/2941f731-0a2e-4391-b8c9-a2912a80c081/download"
 ox.settings.use_cache = True
 ox.settings.log_console = True
-ox.settings.timeout = 240
-ox.settings.requests_timeout = 240
+ox.settings.timeout = 45
+ox.settings.requests_timeout = 45
 ox.settings.overpass_rate_limit = True
 
 def request_with_retries(url, label, timeout=180):
     """GET with bounded retries for transient BA Data/CDN failures."""
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
-    retry = Retry(total=5, connect=5, read=3, status=5, backoff_factor=2,
+    retry = Retry(total=2, connect=2, read=2, status=2, backoff_factor=0.5,
                   status_forcelist=(429, 500, 502, 503, 504),
-                  allowed_methods=frozenset(["GET"]), respect_retry_after_header=True)
+                  allowed_methods=frozenset(["GET"]), respect_retry_after_header=False)
     session = requests.Session()
     session.mount("https://", HTTPAdapter(max_retries=retry))
-    response = session.get(url, timeout=timeout, headers={"User-Agent": "BuenosAiresPerfecta/1.0 (open-data game project)"})
+    bounded_timeout = (10, min(timeout, 35)) if isinstance(timeout, (int, float)) else timeout
+    print(f"{label}: requesting {url}", flush=True)
+    response = session.get(url, timeout=bounded_timeout, headers={"User-Agent": "BuenosAiresPerfecta/1.0 (open-data game project)"})
     response.raise_for_status()
     print(f"{label}: HTTP {response.status_code}, {len(response.content)} bytes")
     return response
@@ -212,19 +214,19 @@ def main():
 
     def fetch_osm_group(group_name, group_tags):
         last_error = None
-        for attempt in range(6):
+        for attempt in range(3):
             server = overpass_servers[attempt % len(overpass_servers)]
             ox.settings.overpass_url = server
             try:
-                print(f"Downloading OSM {group_name} features via {server} (attempt {attempt + 1}/6)")
+                print(f"Downloading OSM {group_name} features via {server} (attempt {attempt + 1}/3)", flush=True)
                 result = ox.features_from_bbox((west, south, east, north), tags=group_tags)
                 print(f"Downloaded {len(result)} OSM {group_name} features.")
                 return result
             except Exception as exc:
                 last_error = exc
-                delay = min(8 * (2 ** (attempt // len(overpass_servers))), 60)
+                delay = 5
                 print(f"OSM {group_name} query failed via {server}: {exc}. Retrying in {delay}s.")
-                if attempt < 5:
+                if attempt < 2:
                     time.sleep(delay)
         raise RuntimeError(f"Unable to download OSM {group_name} features after retries and server fallback: {last_error}")
 

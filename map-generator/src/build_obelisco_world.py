@@ -52,7 +52,7 @@ def read_city_layer(url, bbox, label):
             raise RuntimeError(f"{label}: JSON response is not a GeoJSON FeatureCollection")
         west, south, east, north = bbox
         return layer.cx[west:east, south:north].copy()
-    if content[:4] == b"PK\\x03\\x04" or "zip" in content_type:
+    if content[:4] == b"PK\x03\x04" or "zip" in content_type:
         return gpd.read_file(io.BytesIO(content), bbox=bbox)
     preview = content[:240].decode("utf-8", errors="replace").replace("\\n", " ")
     raise RuntimeError(f"{label}: unsupported response format ({content_type}); body starts: {preview}")

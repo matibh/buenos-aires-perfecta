@@ -132,9 +132,41 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   }
 
   const roads: THREE.BufferGeometry[]=[];
-  const buildings: THREE.BufferGeometry[][]=BUILDING_COLORS.map(()=>[]);
-  const windowItems:Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>=[];
-  const frameItems:Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>=[];
+  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; windows: Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>; frames: Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>; centerX:number; centerZ:number };
+  const chunkBuilds = new Map<string, ChunkBuild>();
+  const CHUNK_SIZE = 128;
+  const getChunk = (x:number,z:number):ChunkBuild => {
+    const cx=Math.floor(x/CHUNK_SIZE), cz=Math.floor(z/CHUNK_SIZE), key=`${cx},${cz}`;
+    let chunk=chunkBuilds.get(key);
+    if(!chunk){
+      const group=new THREE.Group();
+      group.name=`render-chunk-${key}`;
+      const geometryGroup=new THREE.Group();
+      geometryGroup.name='chunk-geometry';
+      const detail=new THREE.Group();
+      detail.name='chunk-details';
+      group.add(geometryGroup,detail);
+      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),windows:[],frames:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
+      group.userData.renderChunk=true;
+      group.userData.detailGroup=detail;
+      group.userData.centerX=chunk.centerX;
+      group.userData.centerZ=chunk.centerZ;
+      group.userData.chunkX=cx; group.userData.chunkZ=cz;
+      chunkBuilds.set(key,chunk);
+      group.add(geometryGroup,detail);
+      group.children.splice(0,2);
+      group.add(geometryGroup,detail);
+      group.visible=true;
+      group.userData.detailGroup=detail;
+      group.userData.renderChunk=true;
+      group.userData.centerX=chunk.centerX;
+      group.userData.centerZ=chunk.centerZ;
+      group.userData.geometryGroup=geometryGroup;
+      // The world group is assigned below after chunk creation.
+      group.userData.attachToWorld=true;
+    }
+    return chunk;
+  };
   const colonColumns:Array<{x:number;y:number;z:number}>=[]; 
   const facadeEdges:Array<{a:{x:number;z:number};b:{x:number;z:number};height:number}>=[];
   let colonLandmarkBuilt=false,granRexSignBuilt=false;
@@ -153,10 +185,11 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     for(const ring of f.polygons){
       if(ring.length<4) continue;
       const height=f.heightSource==='visual fallback estimate' ? visualHeight(ring,data.origin) : Math.max(3,Math.min(f.height??9.5,150));
-      buildings[materialIndex].push(buildingGeometry(ring,data.origin,height));
       const pts=ring.map(([lon,lat])=>local(lon,lat,data.origin));
       const xs=pts.map(p=>p.x),zs=pts.map(p=>p.z);
       const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),maxZ=Math.max(...zs);
+      const chunk=getChunk((minX+maxX)/2,(minZ+maxZ)/2);
+      chunk.buildings[materialIndex].push(buildingGeometry(ring,data.origin,height));
       colliders.push({minX,maxX,minZ,maxZ,height});
 
       const landmark=(f.name||'').toLowerCase();
@@ -207,16 +240,19 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
           for(let bay=0;bay<count;bay++){
             const t=(bay+.5)/count,wx=a.x+dx*t,wz=a.z+dz*t;
             const x=wx+nx*.085,z=wz+nz*.085;
-            windowItems.push({x,y,z,rotation:angle,sx:1.05,sy:1.32,sz:.06});
-            frameItems.push({x,y,z,rotation:angle,sx:1.19,sy:1.46,sz:.04});
+            chunk.windows.push({x,y,z,rotation:angle,sx:1.05,sy:1.32,sz:.06});
+            chunk.frames.push({x,y,z,rotation:angle,sx:1.19,sy:1.46,sz:.04});
           }
         }
       }
     }
   }
-  buildings.forEach((geometries,index)=>addMerged(group,geometries,BUILDING_MATERIALS[index],true));
-  addInstancedBoxes(group,new THREE.BoxGeometry(1,1,1),WINDOW_FRAME,frameItems);
-  addInstancedBoxes(group,new THREE.BoxGeometry(1,1,1),GLASS,windowItems);
+  for (const chunk of chunkBuilds.values()) {
+    chunk.buildings.forEach((geometries,index)=>addMerged(chunk.geometryGroup,geometries,BUILDING_MATERIALS[index],true));
+    addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),WINDOW_FRAME,chunk.frames);
+    addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),GLASS,chunk.windows);
+    group.add(chunk.group);
+  }
   addInstancedCylinders(group,new THREE.CylinderGeometry(.34,.43,5.8,8),new THREE.MeshStandardMaterial({color:0xd0c5b2,roughness:.9}),colonColumns);
 
 
@@ -324,19 +360,6 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       dummy.position.y=2.65;dummy.scale.setScalar(1);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);
     });
     trunks.instanceMatrix.needsUpdate=true;crowns.instanceMatrix.needsUpdate=true;group.add(trunks,crowns);
-  }
-  // Spatial hash: collision checks inspect only buildings in the player's nearby cells,
-  // instead of scanning every footprint on every animation frame.
-  for (const collider of colliders) {
-    const minCellX = Math.floor(collider.minX / colliderCellSize);
-    const maxCellX = Math.floor(collider.maxX / colliderCellSize);
-    const minCellZ = Math.floor(collider.minZ / colliderCellSize);
-    const maxCellZ = Math.floor(collider.maxZ / colliderCellSize);
-    for (let gx=minCellX; gx<=maxCellX; gx++) for (let gz=minCellZ; gz<=maxCellZ; gz++) {
-      const key = `${gx},${gz}`;
-      const bucket = colliderGrid.get(key);
-      if (bucket) bucket.push(collider); else colliderGrid.set(key,[collider]);
-    }
   }
   return colliders;
 }

@@ -5,6 +5,7 @@ from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 import osmnx as ox
+from shapely.ops import unary_union
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "public" / "data" / "obelisco-world.json"
@@ -125,6 +126,20 @@ def main():
         and valid_value(row.get("building"))
     ), axis=1)].copy()
 
+    # Official CABA public-space geometry: the Obelisco plaza must remain open.
+    green_layer = gpd.read_file(GREEN_URL, bbox=(west, south, east, north))
+    if green_layer.crs is None:
+        green_layer = green_layer.set_crs('EPSG:4326')
+    elif green_layer.crs.to_epsg() != 4326:
+        green_layer = green_layer.to_crs('EPSG:4326')
+    green_layer = green_layer[green_layer.geometry.notna()].copy()
+    plaza_rows = green_layer[green_layer.apply(lambda row: any('plaza de la rep' in str(row.get(k, '')).lower() for k in ('nombre','nombre_ev','nom_mapa')), axis=1)]
+    if plaza_rows.empty:
+        raise SystemExit('Official Plaza de la República polygon missing from CABA open-space layer.')
+    plaza_geometry = unary_union(list(plaza_rows.geometry))
+    plaza_buffer = gpd.GeoSeries([plaza_geometry], crs='EPSG:4326').to_crs('EPSG:3857').iloc[0].buffer(20)
+    plaza_exclusion = gpd.GeoSeries([plaza_buffer], crs='EPSG:3857').to_crs('EPSG:4326').iloc[0]
+    print(f'Official Plaza de la República polygon loaded ({len(plaza_rows)} features) with 20m no-building buffer.')
     features = []
     counts = {
         "buildings": 0, "official_building_volumes": 0, "osm_buildings_fallback": 0,
@@ -136,6 +151,7 @@ def main():
     if official_layer is not None:
         for _, row in official_layer.iterrows():
             geom = row.geometry
+            if geom.intersects(plaza_exclusion): continue
             measured = official_height(row, height_fields, floor_fields)
             if not measured: continue
             height, source = measured
@@ -153,6 +169,7 @@ def main():
     # OSM supplies names and a fallback for buildings not covered by the 2021 city layer.
     for _, row in osm_buildings.iterrows():
         geom = row.geometry
+        if geom.intersects(plaza_exclusion): continue
         if covered_by_official(geom, official_layer): continue
         tags_row = row_tags(row)
         height = number(tags_row.get("height"))
@@ -201,6 +218,18 @@ def main():
     except Exception as exc:
         print(f"WARNING: official public green-space layer unavailable ({exc}); OSM green features are fallback only.")
 
+    # Add the exact official public-space polygons to the rendered ground.
+    for _, row in green_layer.iterrows():
+        geom = row.geometry
+        props = row_tags(row)
+        label = str(props.get('nombre') or props.get('nombre_ev') or props.get('nom_mapa') or '')
+        if geom.geom_type not in ('Polygon','MultiPolygon'): continue
+        kind = 'plaza' if 'plaza de la rep' in label.lower() else 'green'
+        for poly in polygons_of(geom):
+            if poly.area < 0.0000000001: continue
+            features.append({'type':kind,'polygons':[ring(poly.exterior.coords)],'name':label[:100],'source':'Buenos Aires Ciudad · Espacios Verdes Públicos'})
+            count_key = 'official_plaza_polygons' if kind == 'plaza' else 'official_green_polygons'
+            counts[count_key] = counts.get(count_key,0) + 1
     # OSM remains the source for streets and individually mapped trees.
     for _, row in gdf.iterrows():
         geom = row.geometry

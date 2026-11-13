@@ -85,7 +85,7 @@ function switchLevel(level: 'palermo' | 'obelisco') {
   palermoGroup.visible = level === 'palermo';
   obeliscoGroup.visible = level === 'obelisco';
   colliders = level === 'palermo' ? createPrototypeWorldColliders : obeliscoColliders;
-  player.set(0, eyeHeight, level === 'palermo' ? 29 : 13);
+  player.set(0, eyeHeight, level === 'palermo' ? 29 : 10.5);
   velocity.set(0, 0, 0); grounded = true; flying = false; yaw = 0; pitch = 0;
   modeLabel.textContent = 'A PIE'; modeLabel.classList.remove('flying');
   locationLabel.innerHTML = '<span class="live-dot"></span> ' + (level === 'palermo' ? 'PALERMO SOHO' : 'OBELISCO · SAN NICOLÁS') + ' · BUENOS AIRES';

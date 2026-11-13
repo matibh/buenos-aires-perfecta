@@ -13,6 +13,7 @@ BBOX = {"west": -58.3905, "south": -34.6105, "east": -58.3725, "north": -34.5970
 ORIGIN = {"lon": -58.38162, "lat": -34.60376}
 OFFICIAL_URL = "https://data.buenosaires.gob.ar/es/dataset/tejido-urbano/resource/9d950b8c-d8cd-4dde-9987-9565313974c8/download"
 GREEN_URL = "https://data.buenosaires.gob.ar/dataset/juqdkmgo-96/resource/2a9af960-02a3-44bb-b57e-0a8295f6e0e2/download"
+STREET_URL = "https://data.buenosaires.gob.ar/dataset/juqdkmgo-30/resource/2941f731-0a2e-4391-b8c9-a2912a80c081/download"
 ox.settings.use_cache = True
 ox.settings.log_console = True
 ox.settings.timeout = 240
@@ -115,7 +116,7 @@ def main():
 
     def row_tags(row):
         result = {}
-        for key in ("building","height","building:levels","levels","name","nombre","nombre_ev","nom_mapa","highway","leisure","landuse","natural","width","surface","amenity","shop","flagtipo"):
+        for key in ("building","height","building:levels","levels","name","nombre","nombre_ev","nom_mapa","nomoficial","highway","leisure","landuse","natural","width","surface","amenity","shop","flagtipo"):
             value = row.get(key)
             if valid_value(value): result[key] = value
         return result
@@ -140,6 +141,21 @@ def main():
     plaza_buffer = gpd.GeoSeries([plaza_geometry], crs='EPSG:4326').to_crs('EPSG:3857').iloc[0].buffer(20)
     plaza_exclusion = gpd.GeoSeries([plaza_buffer], crs='EPSG:3857').to_crs('EPSG:4326').iloc[0]
     print(f'Official Plaza de la República polygon loaded ({len(plaza_rows)} features) with 20m no-building buffer.')
+    # Official CABA street centerlines define the 9 de Julio no-building corridor.
+    street_layer = gpd.read_file(STREET_URL, bbox=(west, south, east, north))
+    if street_layer.crs is None:
+        street_layer = street_layer.set_crs('EPSG:4326')
+    elif street_layer.crs.to_epsg() != 4326:
+        street_layer = street_layer.to_crs('EPSG:4326')
+    street_name = street_layer.apply(lambda row: ' '.join(str(row.get(k, '')).lower() for k in ('nomoficial','nom_mapa')), axis=1)
+    avenue_rows = street_layer[street_name.str.contains('9 de julio', na=False)]
+    if avenue_rows.empty:
+        raise SystemExit('Official CABA Callejero has no Avenida 9 de Julio geometry in the requested area.')
+    avenue_geometry = unary_union(list(avenue_rows.geometry))
+    avenue_buffer = gpd.GeoSeries([avenue_geometry], crs='EPSG:4326').to_crs('EPSG:3857').iloc[0].buffer(64)
+    avenue_exclusion = gpd.GeoSeries([avenue_buffer], crs='EPSG:3857').to_crs('EPSG:4326').iloc[0]
+    no_building_area = unary_union([plaza_exclusion, avenue_exclusion])
+    print(f'Official Avenida 9 de Julio centerlines loaded ({len(avenue_rows)} segments); buildings excluded from a 64m corridor on each side.')
     features = []
     counts = {
         "buildings": 0, "official_building_volumes": 0, "osm_buildings_fallback": 0,
@@ -151,7 +167,7 @@ def main():
     if official_layer is not None:
         for _, row in official_layer.iterrows():
             geom = row.geometry
-            if geom.intersects(plaza_exclusion): continue
+            if geom.intersects(no_building_area): continue
             measured = official_height(row, height_fields, floor_fields)
             if not measured: continue
             height, source = measured

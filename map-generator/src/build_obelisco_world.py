@@ -80,7 +80,7 @@ def read_city_layer(url, bbox, label):
             raise RuntimeError(f"{label}: JSON response is not a GeoJSON FeatureCollection")
         west, south, east, north = bbox
         return layer.cx[west:east, south:north].copy()
-    if content[:4] == b"PK\\x03\\x04" or "zip" in content_type:
+    if zipfile.is_zipfile(io.BytesIO(content)) or "zip" in content_type:
         # Pyogrio/GDAL cannot reliably open a ZIP passed as an in-memory BytesIO.
         # Persist the downloaded archive once and address its SHP via /vsizip.
         with zipfile.ZipFile(io.BytesIO(content)) as archive:

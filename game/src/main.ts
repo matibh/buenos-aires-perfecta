@@ -10,7 +10,7 @@ scene.background = new THREE.Color('#aebfc0');
 scene.fog = new THREE.Fog('#aebfc0', 520, 1650);
 const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 2400);
 const renderer = new THREE.WebGLRenderer({ antialias: devicePixelRatio <= 1.5, powerPreference: 'high-performance' });
-const maxPixelRatio = Math.min(devicePixelRatio, 1.5);
+const maxPixelRatio = Math.min(devicePixelRatio, 1.25);
 let currentPixelRatio = maxPixelRatio;
 renderer.setPixelRatio(currentPixelRatio);
 renderer.setSize(innerWidth, innerHeight);
@@ -29,6 +29,8 @@ const world = new THREE.Group();
 scene.add(world);
 let colliders: Array<{ minX: number; maxX: number; minZ: number; maxZ: number; height?: number }> = [];
 let worldReady = false;
+const colliderGrid = new Map<string, typeof colliders>();
+const COLLIDER_CELL_SIZE = 64;
 let worldAttribution = 'Cargando fuentes geográficas…';
 
 const hud = document.createElement('div');
@@ -69,6 +71,14 @@ fetch('data/obelisco-world.json')
   })
   .then(data => {
     colliders = createObeliscoWorld(world, data);
+    for (const collider of colliders) {
+      const minX=Math.floor(collider.minX/COLLIDER_CELL_SIZE), maxX=Math.floor(collider.maxX/COLLIDER_CELL_SIZE);
+      const minZ=Math.floor(collider.minZ/COLLIDER_CELL_SIZE), maxZ=Math.floor(collider.maxZ/COLLIDER_CELL_SIZE);
+      for(let gx=minX;gx<=maxX;gx++) for(let gz=minZ;gz<=maxZ;gz++) {
+        const key=`${gx},${gz}`, bucket=colliderGrid.get(key);
+        if(bucket) bucket.push(collider); else colliderGrid.set(key,[collider]);
+      }
+    }
     worldAttribution = '© OpenStreetMap contributors · Buenos Aires Ciudad (CC BY 2.5 AR) · comercios y cartelería identificados por nombre';
     mapAttribution.textContent = worldAttribution;
     const pizzerias = data.counts?.pizzerias ?? 0;
@@ -99,7 +109,13 @@ function updateCamera() {
   camera.rotation.x = pitch;
 }
 function blocked(x: number, z: number, y: number) {
-  for (const b of colliders) {
+  const gx = Math.floor(x / COLLIDER_CELL_SIZE), gz = Math.floor(z / COLLIDER_CELL_SIZE);
+  const nearby = new Set<typeof colliders[number]>();
+  for (let ox=-1; ox<=1; ox++) for (let oz=-1; oz<=1; oz++) {
+    const bucket = colliderGrid.get(`${gx+ox},${gz+oz}`);
+    if (bucket) for (const item of bucket) nearby.add(item);
+  }
+  for (const b of (nearby.size ? nearby : colliders)) {
     if (y - eyeHeight > (b.height ?? 999) + .2) continue;
     if (x + radius > b.minX && x - radius < b.maxX && z + radius > b.minZ && z - radius < b.maxZ) return true;
   }

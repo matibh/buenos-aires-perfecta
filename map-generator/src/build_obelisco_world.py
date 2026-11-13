@@ -279,7 +279,7 @@ def main():
     features = []
     counts = {
         "buildings": 0, "official_building_volumes": 0, "osm_buildings_fallback": 0,
-        "official_height_matches": 0, "roads": 0, "green": 0, "trees": 0, "businesses": 0, "named_businesses": 0
+        "official_height_matches": 0, "roads": 0, "green": 0, "trees": 0, "businesses": 0, "named_businesses": 0, "pizzerias": 0
     }
 
     # Primary building geometry comes from the City's mapped 3D urban fabric.

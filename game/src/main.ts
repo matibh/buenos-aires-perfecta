@@ -88,7 +88,7 @@ function switchLevel(level: 'palermo' | 'obelisco') {
   levelKicker.textContent = level === 'palermo' ? 'PALERMO SOHO · BUILD 01' : 'OBELISCO · CENTRO PORTEÑO';
   palermoButton.classList.toggle('active', level === 'palermo');
   obeliscoButton.classList.toggle('active', level === 'obelisco');
-  mapAttribution.textContent = level === 'obelisco' ? '© OpenStreetMap contributors · ODbL 1.0 · alturas estimadas donde no hay dato' : '';
+  mapAttribution.textContent = level === 'obelisco' ? '© OpenStreetMap contributors (ODbL 1.0) · Buenos Aires Ciudad (CC BY 2.5 AR) · alturas oficiales y estimadas' : '';
   hint.textContent = level === 'obelisco' ? 'WASD caminar · SPACE saltar · doble SPACE volar · Click captura cámara' : 'WASD caminar · SPACE saltar · doble SPACE volar · Click captura cámara';
   updateCamera();
 }

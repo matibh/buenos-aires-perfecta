@@ -19,7 +19,7 @@ ox.settings.use_cache = True
 ox.settings.log_console = True
 ox.settings.timeout = 45
 ox.settings.requests_timeout = 45
-ox.settings.overpass_rate_limit = True
+ox.settings.overpass_rate_limit = False
 
 def request_with_retries(url, label, timeout=180, stream=False):
     """GET with bounded retries for transient BA Data/CDN failures."""
@@ -226,12 +226,11 @@ def main():
         raise SystemExit("Official CABA Tejido Urbano is unavailable; stopping before OSM downloads.")
     # Query the base map and commercial places separately. A single large
     # Overpass query is prone to 502 responses when public instances are busy.
+    # Keep the mandatory geometry query small. Official CABA layers already
+    # provide plaza/green polygons; OSM green/trees are optional enrichment.
     base_tags = {
         "building": True,
         "highway": True,
-        "leisure": ["park", "garden", "playground"],
-        "landuse": ["grass", "forest", "recreation_ground"],
-        "natural": ["tree", "wood"],
     }
     place_tags = {
         "shop": True, "amenity": True, "office": True,
@@ -256,14 +255,20 @@ def main():
                 return result
             except Exception as exc:
                 last_error = exc
-                delay = 5
-                print(f"OSM {group_name} query failed via {server}: {exc}. Retrying in {delay}s.")
+                delay = 8 * (2 ** attempt)
+                print(f"OSM {group_name} query failed via {server}: {exc}. Retrying in {delay}s.", flush=True)
                 if attempt < 2:
                     time.sleep(delay)
         raise RuntimeError(f"Unable to download OSM {group_name} features after retries and server fallback: {last_error}")
 
     base_gdf = fetch_osm_group("base map", base_tags)
-    places_gdf = fetch_osm_group("commercial places", place_tags)
+    # Commercial POIs are useful but not required to construct the level.
+    # Public Overpass instances frequently throttle broad POI queries.
+    try:
+        places_gdf = fetch_osm_group("commercial places", place_tags)
+    except Exception as exc:
+        print(f"WARNING: optional OSM commercial POIs unavailable; continuing with official map geometry and curated venues: {exc}", flush=True)
+        places_gdf = gpd.GeoDataFrame(geometry=[], crs=base_gdf.crs)
     gdf = pd.concat([base_gdf, places_gdf], axis=0)
     gdf = gdf[~gdf.index.duplicated(keep="first")]
     gdf = gpd.GeoDataFrame(gdf, geometry="geometry", crs=base_gdf.crs)

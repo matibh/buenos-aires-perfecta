@@ -115,6 +115,8 @@ function visualHeight(ring:number[][],origin:{lon:number;lat:number}) {
 
 export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData): WorldCollider[] {
   const colliders: WorldCollider[]=[];
+  const colliderGrid = new Map<string, WorldCollider[]>();
+  const colliderCellSize = 64;
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(2400,1900),new THREE.MeshStandardMaterial({color:0xb6b3a9,roughness:1}));
   ground.rotation.x=-Math.PI/2; ground.position.y=-.04; ground.receiveShadow=true; group.add(ground);
 
@@ -197,18 +199,16 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
         const a=pts[edge],b=pts[edge+1],dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz);
         if (len > 2) facadeEdges.push({a,b,height});
         if(len<5) continue;
-        const count=Math.max(1,Math.floor(len/3.4));
+        const count=Math.max(1,Math.floor(len/4.8));
         const angle=Math.atan2(-dz,dx);
         const nx=Math.sin(angle),nz=Math.cos(angle);
         for(let floor=0;floor<floorCount;floor++){
           const y=2.45+floor*3.2;
           for(let bay=0;bay<count;bay++){
             const t=(bay+.5)/count,wx=a.x+dx*t,wz=a.z+dz*t;
-            for(const side of [-1,1]){
-              const x=wx+nx*side*.085,z=wz+nz*side*.085;
-              windowItems.push({x,y,z,rotation:angle,sx:1.18,sy:1.48,sz:.07});
-              frameItems.push({x,y,z:z,rotation:angle,sx:1.34,sy:1.64,sz:.045});
-            }
+            const x=wx+nx*.085,z=wz+nz*.085;
+            windowItems.push({x,y,z,rotation:angle,sx:1.05,sy:1.32,sz:.06});
+            frameItems.push({x,y,z,rotation:angle,sx:1.19,sy:1.46,sz:.04});
           }
         }
       }
@@ -225,7 +225,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const signFeatures = data.features
     .filter(feature => feature.type === 'business' && feature.point && feature.name?.trim())
     .sort((a,b) => Number(b.isPizzeria === true) - Number(a.isPizzeria === true))
-    .slice(0,240);
+    .slice(0,120);
   for (const feature of signFeatures) {
     const coordinates = feature.point;
     const venueName = feature.name?.trim();
@@ -324,6 +324,19 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       dummy.position.y=2.65;dummy.scale.setScalar(1);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);
     });
     trunks.instanceMatrix.needsUpdate=true;crowns.instanceMatrix.needsUpdate=true;group.add(trunks,crowns);
+  }
+  // Spatial hash: collision checks inspect only buildings in the player's nearby cells,
+  // instead of scanning every footprint on every animation frame.
+  for (const collider of colliders) {
+    const minCellX = Math.floor(collider.minX / colliderCellSize);
+    const maxCellX = Math.floor(collider.maxX / colliderCellSize);
+    const minCellZ = Math.floor(collider.minZ / colliderCellSize);
+    const maxCellZ = Math.floor(collider.maxZ / colliderCellSize);
+    for (let gx=minCellX; gx<=maxCellX; gx++) for (let gz=minCellZ; gz<=maxCellZ; gz++) {
+      const key = `${gx},${gz}`;
+      const bucket = colliderGrid.get(key);
+      if (bucket) bucket.push(collider); else colliderGrid.set(key,[collider]);
+    }
   }
   return colliders;
 }

@@ -1,0 +1,11 @@
+{
+  "district":"Palermo Soho","city":"Buenos Aires","country":"Argentina",
+  "crs":{"source_expected":"EPSG:4326","metric_target":"EPSG:5348","note":"Inspect each input CRS before reprojection; never override blindly."},
+  "bbox_wgs84":{"west":-58.4335,"south":-34.5925,"east":-58.4225,"north":-34.585},
+  "bounds_description":{"north":"Scalabrini Ortiz","south":"Uriarte","east":"Costa Rica","west":"Honduras"},
+  "sources":[
+    {"id":"caba_tejido_urbano","path":"data/raw/caba/tejido_urbano.geojson","purpose":"Building footprints and available height attributes"},
+    {"id":"caba_parcelas","path":"data/raw/caba/parcelas.geojson","purpose":"Parcel geometry and address context"},
+    {"id":"osm","path":"data/raw/osm/palermo.osm.pbf","purpose":"Roads, paths, amenities, vegetation and supplemental building tags"}
+  ]
+}

@@ -276,6 +276,8 @@ def building_appearance(geom, osm_buildings):
                 result[output] = str(value).strip()[:80]
         if "facadeMaterial" not in result and valid_value(best.get("building:material")):
             result["facadeMaterial"] = str(best.get("building:material")).strip()[:80]
+        if valid_value(best.get("balcony")):
+            result["balconyTag"] = str(best.get("balcony")).strip()[:64]
         if "facadeColour" not in result:
             colour = best.get("building:colour") or best.get("building:color")
             if valid_value(colour):
@@ -609,10 +611,15 @@ def main():
             lines = list(geom.geoms)
             return max(lines, key=lambda line: line.length) if lines else None
         if geom.geom_type == "Polygon":
-            return geom.exterior
+            coords = list(geom.exterior.coords)
+            edges = [__import__("shapely.geometry", fromlist=["LineString"]).LineString([coords[i], coords[i + 1]]) for i in range(len(coords) - 1)]
+            return max(edges, key=lambda line: line.length) if edges else None
         if geom.geom_type == "MultiPolygon":
-            polygons = list(geom.geoms)
-            return max((poly.exterior for poly in polygons), key=lambda line: line.length) if polygons else None
+            edges = []
+            for poly in geom.geoms:
+                coords = list(poly.exterior.coords)
+                edges.extend(__import__("shapely.geometry", fromlist=["LineString"]).LineString([coords[i], coords[i + 1]]) for i in range(len(coords) - 1))
+            return max(edges, key=lambda line: line.length) if edges else None
         if geom.geom_type == "GeometryCollection":
             lines = []
             for part in geom.geoms:
@@ -700,6 +707,53 @@ def main():
         )
         if official_smp and not matching_smp:
             raise RuntimeError("No cadastral SMP identifiers overlap between frontage and official building-volume layers; refusing guessed photo-to-building matches")
+
+        # Attach measured cadastral frontage edges to matching official buildings.
+        frontage_by_smp = {}
+        frontage_widths = []
+        for _, frontage in frontages.iterrows():
+            normalized = str(frontage.get("__smp_norm") or "")
+            if not normalized or (official_smp and normalized not in official_smp):
+                continue
+            line = longest_frontage_line(frontage.geometry)
+            if line is None:
+                continue
+            projected_line = gpd.GeoSeries([line], crs="EPSG:4326").to_crs("EPSG:3857").iloc[0]
+            width_m = float(projected_line.length)
+            if width_m < 2.5:
+                continue
+            existing = frontage_by_smp.get(normalized)
+            if existing is None or width_m > existing["width"]:
+                frontage_by_smp[normalized] = {
+                    "line": ring(line.coords), "width": round(width_m, 2),
+                    "number": str(frontage.get("num_dom") or "")[:24],
+                    "parcel": str(frontage.get("parcela") or "")[:32],
+                    "class": str(frontage.get("clase") or "")[:32],
+                    "updated": str(frontage.get("fecha") or frontage.get("anio_act") or "")[:32],
+                }
+                frontage_widths.append(width_m)
+        frontage_building_matches = 0
+        for feature in features:
+            if feature.get("type") != "building":
+                continue
+            profile = frontage_by_smp.get(normalize_smp(feature.get("smp")))
+            if not profile:
+                continue
+            feature["facadeLine"] = profile["line"]
+            feature["frontageWidth"] = profile["width"]
+            feature["frontageNumber"] = profile["number"]
+            feature["parcelId"] = profile["parcel"]
+            feature["frontageClass"] = profile["class"]
+            feature["frontageUpdated"] = profile["updated"]
+            frontage_building_matches += 1
+        print(
+            f"Measured cadastral frontage edges attached to buildings: {frontage_building_matches}; "
+            f"unique parcels={len(frontage_by_smp)}; "
+            f"median frontage={round(float(pd.Series(frontage_widths).median()), 2) if frontage_widths else 0}m",
+            flush=True
+        )
+        counts["measured_frontage_matches"] = frontage_building_matches
+        counts["measured_frontage_parcels"] = len(frontage_by_smp)
 
         business_points = [
             Point(feature["point"][0], feature["point"][1])

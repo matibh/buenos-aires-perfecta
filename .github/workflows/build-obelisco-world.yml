@@ -35,13 +35,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Generate real Obelisco map data when missing
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: map-generator/requirements.txt
+      - name: Install GIS dependencies
+        run: python -m pip install -r map-generator/requirements.txt
+      - name: Generate real Obelisco map data
+        timeout-minutes: 15
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
-          # Regenerate on every relevant source change so updated pizzerias,
-          # storefront names, GIS fixes and OSM data cannot be hidden by a stale extract.
-          python -m pip install --upgrade pip
-          pip install -r map-generator/requirements.txt
-          python map-generator/src/build_obelisco_world.py
+          # Regenerate on every relevant source change; emit each network step immediately.
+          python -u map-generator/src/build_obelisco_world.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/obelisco-world.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Refresh generated Obelisco world data [skip ci]"
+            git pull --rebase origin main
+            git push
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/data/obelisco-world.json

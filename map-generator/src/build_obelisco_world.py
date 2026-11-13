@@ -1,6 +1,6 @@
 """Build an attributed 3D city dataset around the Buenos Aires Obelisk."""
 from __future__ import annotations
-import io, json, re, time, tempfile, zipfile, hashlib, shutil
+import io, json, re, time, tempfile, zipfile, hashlib, shutil, unicodedata
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
@@ -590,7 +590,7 @@ def main():
 
 
     # Individually documented architectural references inside the Obelisco play area.
-    # Coordinates are resolved from the street address and matched to the official parcel volume;
+    # Match each landmark by its official street frontage and door number;
     # no visual identity is assigned when geocoding cannot confidently locate a building.
     architectural_references = [
         {
@@ -759,7 +759,7 @@ def main():
                 street_value = normalized_street(frontage.get(frontage_field) or frontage.get("frente"))
                 if reference["street"] not in street_value:
                     continue
-                number_match = re.search(r"\\d+", str(frontage.get("num_dom") or ""))
+                number_match = re.search(r"\d+", str(frontage.get("num_dom") or ""))
                 if not number_match:
                     continue
                 house_number = int(number_match.group(0))

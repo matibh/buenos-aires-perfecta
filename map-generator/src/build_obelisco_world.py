@@ -7,6 +7,7 @@ import pandas as pd
 import requests
 import osmnx as ox
 from shapely.ops import unary_union
+from shapely.geometry import Point
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "public" / "data" / "obelisco-world.json"
@@ -664,7 +665,8 @@ def main():
                     print(f"USIG facade photo unavailable for SMP {smp}: {exc}",flush=True); continue
             else: photo_date="USIG archive (cached)"
             shutil.copy2(cached_photo,public_photo)
-            line_coords=[[round(float(x),7),round(float(y),7)] for x,y in frontage_geom.coords] if frontage_geom.geom_type=="LineString" else []
+            frontage_line = frontage_geom if frontage_geom.geom_type=="LineString" else max(list(frontage_geom.geoms),key=lambda line:line.length) if frontage_geom.geom_type=="MultiLineString" and len(frontage_geom.geoms) else None
+            line_coords=[[round(float(x),7),round(float(y),7)] for x,y in frontage_line.coords] if frontage_line is not None else []
             if len(line_coords)<2: continue
             nearest_height=9.5
             try:

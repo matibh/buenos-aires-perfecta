@@ -400,6 +400,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   // USIG facade photos are packed into one atlas and one mesh to preserve high FPS.
   const facadePhotoFeatures=data.features.filter(feature=>feature.type==='facadePhoto'&&feature.image&&feature.line&&feature.line.length>=2);
   if(facadePhotoFeatures.length){
+    void (async()=>{
     const loadedPhotos=await Promise.all(facadePhotoFeatures.map(feature=>new Promise<{feature:GeoFeature;image:HTMLImageElement}|null>(resolve=>{
       const image=new Image();
       image.onload=()=>resolve({feature,image});
@@ -452,6 +453,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
         }
       }
     }
+    })();
   }
 
   // Boulevard lane dashes and pedestrian crossings: the width of 9 de Julio must read at street level.

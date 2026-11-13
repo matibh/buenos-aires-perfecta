@@ -873,34 +873,44 @@ def main():
         for _, _, _, smp, normalized_smp, frontage_geom in selected:
             safe_smp = re.sub(r"[^A-Za-z0-9_-]", "_", smp)
             cached_photo = facade_cache_dir / f"{safe_smp}.jpg"
+            cached_metadata = facade_cache_dir / f"{safe_smp}.json"
             photo_date = ""
             try:
+                if cached_metadata.exists():
+                    try:
+                        photo_date = str(json.loads(cached_metadata.read_text(encoding="utf-8")).get("date") or "")[:48]
+                    except Exception:
+                        photo_date = ""
+                if not photo_date:
+                    try:
+                        metadata_response = requests.get(
+                            "https://fotos.usig.buenosaires.gob.ar/getDatosFotos",
+                            params={"smp": smp, "callback": "callback"},
+                            timeout=(6, 12),
+                            headers={"User-Agent": "BuenosAiresPerfecta/1.0"}
+                        )
+                        metadata_response.raise_for_status()
+                        raw = metadata_response.text.strip()
+                        if "(" in raw and raw.endswith((")", ");")):
+                            raw = raw[raw.find("(") + 1:raw.rfind(")")]
+                        metadata = json.loads(raw)
+                        if isinstance(metadata, dict):
+                            photo_records = metadata.get("fotos") or metadata.get("result") or metadata.get("data") or []
+                        else:
+                            photo_records = metadata
+                        if isinstance(photo_records, list) and photo_records:
+                            first_record = photo_records[0] if isinstance(photo_records[0], dict) else {}
+                            photo_date = str(
+                                first_record.get("fecha") or first_record.get("date") or
+                                first_record.get("fecha_foto") or first_record.get("fechaFoto") or ""
+                            )[:48]
+                        cached_metadata.write_text(json.dumps({"date": photo_date}, ensure_ascii=False), encoding="utf-8")
+                    except Exception as metadata_exc:
+                        print(f"USIG date metadata unavailable for SMP {smp}: {metadata_exc}", flush=True)
+
                 if cached_photo.exists() and cached_photo.stat().st_size > 1000:
                     image_bytes = cached_photo.read_bytes()
-                    photo_date = "USIG archive (cached; date metadata pending)"
                 else:
-                    metadata_response = requests.get(
-                        "https://fotos.usig.buenosaires.gob.ar/getDatosFotos",
-                        params={"smp": smp, "callback": "callback"},
-                        timeout=(6, 12),
-                        headers={"User-Agent": "BuenosAiresPerfecta/1.0"}
-                    )
-                    metadata_response.raise_for_status()
-                    raw = metadata_response.text.strip()
-                    if "(" in raw and raw.endswith((")", ");")):
-                        raw = raw[raw.find("(") + 1:raw.rfind(")")]
-                    metadata = json.loads(raw)
-                    if isinstance(metadata, dict):
-                        photo_records = metadata.get("fotos") or metadata.get("result") or metadata.get("data") or []
-                    else:
-                        photo_records = metadata
-                    if not isinstance(photo_records, list) or not photo_records:
-                        continue
-                    first_record = photo_records[0] if isinstance(photo_records[0], dict) else {}
-                    photo_date = str(
-                        first_record.get("fecha") or first_record.get("date") or
-                        first_record.get("fecha_foto") or first_record.get("fechaFoto") or ""
-                    )[:48]
                     image_response = requests.get(
                         "https://fotos.usig.buenosaires.gob.ar/getFoto",
                         params={"smp": smp, "i": 0, "w": 800, "h": 1000},
@@ -910,8 +920,8 @@ def main():
                     image_response.raise_for_status()
                     image_bytes = image_response.content
                     if not (
-                        image_bytes.startswith(b"\xff\xd8") or
-                        image_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+                        image_bytes.startswith(b"\\xff\\xd8") or
+                        image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
                     ):
                         print(f"USIG returned non-image response for SMP {smp}; skipping", flush=True)
                         continue
@@ -942,8 +952,9 @@ def main():
                 profile = facade_profiles.get(normalize_smp(feature.get("smp")))
                 if not profile:
                     continue
-                feature["facadeHex"] = profile["primary"]
-                feature["facadeHexSecondary"] = profile["secondary"]
+                if not feature.get("architectureProfile"):
+                    feature["facadeHex"] = profile["primary"]
+                    feature["facadeHexSecondary"] = profile["secondary"]
                 feature["facadeReferenceDate"] = profile["date"]
                 year_match = re.search(r"20\d{2}", profile["date"])
                 feature["facadeReferenceStatus"] = (

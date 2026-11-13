@@ -89,7 +89,7 @@ function switchLevel(level: 'palermo' | 'obelisco') {
   palermoButton.classList.toggle('active', level === 'palermo');
   obeliscoButton.classList.toggle('active', level === 'obelisco');
   mapAttribution.textContent = level === 'obelisco' ? '© OpenStreetMap contributors · ODbL 1.0 · alturas estimadas donde no hay dato' : '';
-  hint.textContent = level === 'obelisco' ? 'Explorá el Obelisco y las cuadras del centro · ESC para liberar' : 'Explorá Palermo Soho · ESC para liberar';
+  hint.textContent = level === 'obelisco' ? 'WASD caminar · SPACE saltar · doble SPACE volar · Click captura cámara' : 'WASD caminar · SPACE saltar · doble SPACE volar · Click captura cámara';
   updateCamera();
 }
 const forward = new THREE.Vector3(), right = new THREE.Vector3(), move = new THREE.Vector3();
@@ -115,14 +115,23 @@ function toggleFlight() {
   velocity.y = 0;
   modeLabel.textContent = flying ? 'VUELO ACTIVADO' : 'A PIE';
   modeLabel.classList.toggle('flying', flying);
-  hint.textContent = flying ? 'Vuelo: SPACE sube · SHIFT baja · doble SPACE desactiva' : 'Doble SPACE para volar · ESC para liberar el mouse';
+  hint.textContent = flying ? 'Vuelo: SPACE sube · SHIFT baja · doble SPACE desactiva' : 'Doble SPACE para volar · WASD para moverte';
 }
-function lockPointer() { renderer.domElement.requestPointerLock(); }
+function lockPointer() {
+  try {
+    const request = renderer.domElement.requestPointerLock();
+    if (request && typeof request.catch === 'function') {
+      request.catch(() => { hint.textContent = 'Mouse libre · WASD y SPACE siguen funcionando · Click para reintentar'; });
+    }
+  } catch {
+    hint.textContent = 'Mouse libre · WASD y SPACE siguen funcionando · Click para reintentar';
+  }
+}
 startButton.addEventListener('click', () => { started = true; startPanel.classList.add('hidden'); lockPointer(); });
 renderer.domElement.addEventListener('click', () => { if (started && document.pointerLockElement !== renderer.domElement) lockPointer(); });
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === renderer.domElement;
-  if (started && !locked) hint.textContent = 'Mouse liberado · Click en el mundo para continuar';
+  if (started && !locked) hint.textContent = 'Mouse liberado · WASD para caminar · SPACE para saltar · Click para recuperar la cámara';
 });
 document.addEventListener('mousemove', e => {
   if (document.pointerLockElement !== renderer.domElement) return;
@@ -134,7 +143,7 @@ document.addEventListener('keydown', e => {
   keys.add(e.code);
   if (e.code === 'Space' && !e.repeat && started) {
     const now = performance.now();
-    if (now - lastSpace < 320) toggleFlight();
+    if (now - lastSpace < 360) toggleFlight();
     else if (!flying && grounded) { velocity.y = 7.2; grounded = false; }
     lastSpace = now;
   }
@@ -144,7 +153,7 @@ window.addEventListener('blur', () => keys.clear());
 
 function tick(now: number) {
   const dt = Math.min((now - lastTime) / 1000, .04); lastTime = now;
-  if (started && document.pointerLockElement === renderer.domElement) {
+  if (started) {
     forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
     right.set(Math.cos(yaw), 0, -Math.sin(yaw));
     move.set(0, 0, 0);

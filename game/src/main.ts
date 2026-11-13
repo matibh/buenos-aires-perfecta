@@ -72,11 +72,9 @@ const keys = new Set<string>();
 let yaw = 0, pitch = 0, grounded = true, flying = false, started = false;
 let lastSpace = 0, lastTime = performance.now();
 const radius = .38, eyeHeight = 1.72;
-let activeLevel: 'palermo' | 'obelisco' = 'palermo';
 const createPrototypeWorldColliders = colliders;
 function switchLevel(level: 'palermo' | 'obelisco') {
   if (level === 'obelisco' && !obeliscoReady) return;
-  activeLevel = level;
   palermoGroup.visible = level === 'palermo';
   obeliscoGroup.visible = level === 'obelisco';
   colliders = level === 'palermo' ? createPrototypeWorldColliders : obeliscoColliders;

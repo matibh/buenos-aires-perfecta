@@ -50,6 +50,14 @@ hud.innerHTML = `
     <button id="start-button" disabled>PREPARANDO EL MUNDO…</button>
     <small id="load-status">Cargando edificios, calles y comercios reales.</small>
   </div>
+  <div class="compass" role="img" aria-label="Brújula: norte, este, sur y oeste">
+    <div class="compass-dial" id="compass-dial">
+      <span class="compass-north">N</span><span class="compass-east">E</span>
+      <span class="compass-south">S</span><span class="compass-west">O</span>
+      <i class="compass-needle"></i>
+    </div>
+    <i class="compass-center"></i>
+  </div>
   <div class="reticle"><i></i><i></i></div>
   <div class="bottom-panel">
     <div><small>MOVERSE</small><strong>W A S D</strong></div><div><small>SALTAR</small><strong>SPACE</strong></div>
@@ -67,6 +75,7 @@ const loadStatus = hud.querySelector<HTMLElement>('#load-status')!;
 const modeLabel = hud.querySelector<HTMLDivElement>('#mode')!;
 const hint = hud.querySelector<HTMLDivElement>('#hint')!;
 const mapAttribution = hud.querySelector<HTMLDivElement>('#map-attribution')!;
+const compassDial = hud.querySelector<HTMLDivElement>('#compass-dial')!;
 
 fetch('data/obelisco-world.json')
   .then(response => {
@@ -114,6 +123,8 @@ function updateCamera() {
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
+  // World north is -Z; rotate the compass rose with the camera heading.
+  compassDial.style.transform = `rotate(${THREE.MathUtils.radToDeg(yaw)}deg)`;
 }
 function updateChunkVisibility(now: number) {
   if (now - lastChunkUpdate < 180) return;

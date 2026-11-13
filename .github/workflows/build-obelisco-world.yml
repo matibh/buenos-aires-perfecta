@@ -37,20 +37,18 @@ jobs:
           fetch-depth: 2
       - name: Generate real Obelisco map data when missing
         run: |
-          if [ ! -s public/data/obelisco-world.json ]; then
-            python -m pip install --upgrade pip
-            pip install -r map-generator/requirements.txt
-            python map-generator/src/build_obelisco_world.py
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add public/data/obelisco-world.json
-            if ! git diff --cached --quiet; then
-              git commit -m "Add real-world Obelisco level data"
-              git pull --rebase origin main
-              git push
-            fi
-          else
-            echo "Obelisco source extract already exists; reusing it."
+          # Regenerate on every relevant source change so updated pizzerias,
+          # storefront names, GIS fixes and OSM data cannot be hidden by a stale extract.
+          python -m pip install --upgrade pip
+          pip install -r map-generator/requirements.txt
+          python map-generator/src/build_obelisco_world.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/obelisco-world.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Refresh generated Obelisco world data [skip ci]"
+            git pull --rebase origin main
+            git push
           fi
       - name: Setup Node
         uses: actions/setup-node@v4

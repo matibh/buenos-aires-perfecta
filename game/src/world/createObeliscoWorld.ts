@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 type GeoFeature = {
   type: 'building' | 'road' | 'green' | 'tree';
-  polygons?: number[][][][];
+  polygons?: number[][][];
   line?: number[][];
   point?: number[];
   height?: number;

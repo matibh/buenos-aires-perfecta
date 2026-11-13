@@ -13,3 +13,16 @@
 
 .map-attribution{position:absolute;right:16px;bottom:104px;font-size:8px;letter-spacing:.25px;color:rgba(255,255,255,.72);text-shadow:0 1px 5px #000;text-align:right;pointer-events:none}
 @media(max-width:650px){.map-attribution{right:12px;bottom:94px;font-size:7px;max-width:58vw}}
+
+
+/* Live cardinal compass: the rose rotates with the view, keeping north geographically correct. */
+.compass{position:absolute;top:94px;right:5vw;width:76px;height:76px;border:1px solid rgba(255,255,255,.48);border-radius:50%;background:rgba(20,30,31,.58);backdrop-filter:blur(10px);box-shadow:0 2px 14px rgba(0,0,0,.2);pointer-events:none}
+.compass-dial{position:absolute;inset:0;border-radius:50%;will-change:transform}
+.compass-dial span{position:absolute;font:800 9px Manrope,sans-serif;line-height:1;color:rgba(255,255,255,.88);text-shadow:0 1px 4px #000}
+.compass-north{top:7px;left:50%;transform:translateX(-50%);color:#f1a18e!important}
+.compass-south{bottom:7px;left:50%;transform:translateX(-50%)}
+.compass-east{right:8px;top:50%;transform:translateY(-50%)}
+.compass-west{left:8px;top:50%;transform:translateY(-50%)}
+.compass-needle{position:absolute;left:50%;top:18px;width:0;height:0;transform:translateX(-50%);border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:17px solid #e46e59;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+.compass-center{position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;background:#f7f5ef;transform:translate(-50%,-50%);box-shadow:0 0 4px #000}
+@media(max-width:650px){.compass{top:76px;right:16px;width:62px;height:62px}.compass-north{top:5px}.compass-south{bottom:5px}.compass-east{right:6px}.compass-west{left:6px}.compass-needle{top:14px;border-left-width:5px;border-right-width:5px;border-bottom-width:14px}}

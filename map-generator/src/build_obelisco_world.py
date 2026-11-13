@@ -20,6 +20,34 @@ ox.settings.timeout = 240
 ox.settings.requests_timeout = 240
 ox.settings.overpass_rate_limit = True
 
+def read_caba_resource(resource_id, bbox, label):
+    """Resolve the real CKAN resource URL before asking GDAL to read it."""
+    import requests
+    metadata_url = f"https://data.buenosaires.gob.ar/api/3/action/resource_show?id={resource_id}"
+    response = requests.get(metadata_url, timeout=60, headers={"User-Agent": "BuenosAiresPerfecta/1.0"})
+    response.raise_for_status()
+    metadata = response.json()
+    if not metadata.get("success") or not metadata.get("result", {}).get("url"):
+        raise RuntimeError(f"BA Data CKAN did not return a download URL for {label}: {metadata}")
+    download_url = metadata["result"]["url"]
+    print(f"Resolved official {label} resource: {download_url}")
+    try:
+        layer = gpd.read_file(download_url, bbox=bbox)
+    except Exception as exc:
+        # Some CKAN resources are served as GeoJSON text behind a redirect that
+        # GDAL cannot identify. Download and parse the actual response instead.
+        data_response = requests.get(download_url, timeout=180, headers={"User-Agent": "BuenosAiresPerfecta/1.0"})
+        data_response.raise_for_status()
+        content_type = data_response.headers.get("content-type", "")
+        body = data_response.content
+        if not (body.lstrip().startswith(b"{") or body.lstrip().startswith(b"[") or "json" in content_type.lower()):
+            raise RuntimeError(f"Official {label} download is not GeoJSON/JSON (HTTP {data_response.status_code}, {content_type}): {exc}")
+        import io
+        layer = gpd.read_file(io.BytesIO(body), bbox=bbox)
+    print(f"Loaded official {label}: {len(layer)} features")
+    return layer
+
+
 def number(value):
     if value is None: return None
     match = re.search(r"[-+]?\d+(?:[.,]\d+)?", str(value))
@@ -32,7 +60,7 @@ def load_official_layer():
     """Load the City's 3D building-volume layer, clipped to the playable area."""
     west, south, east, north = (BBOX[k] for k in ("west", "south", "east", "north"))
     try:
-        layer = gpd.read_file(OFFICIAL_URL, bbox=(west, south, east, north))
+        layer = read_caba_resource("9d950b8c-d8cd-4dde-9987-9565313974c8", (west, south, east, north), "Tejido Urbano")
         if layer.crs is None:
             layer = layer.set_crs("EPSG:4326")
         elif layer.crs.to_epsg() != 4326:
@@ -161,7 +189,7 @@ def main():
     ), axis=1)].copy()
 
     # Official CABA public-space geometry: the Obelisco plaza must remain open.
-    green_layer = gpd.read_file(GREEN_URL, bbox=(west, south, east, north))
+    green_layer = read_caba_resource("2a9af960-02a3-44bb-b57e-0a8295f6e0e2", (west, south, east, north), "Espacios Verdes Públicos")
     if green_layer.crs is None:
         green_layer = green_layer.set_crs('EPSG:4326')
     elif green_layer.crs.to_epsg() != 4326:
@@ -175,7 +203,7 @@ def main():
     plaza_exclusion = gpd.GeoSeries([plaza_buffer], crs='EPSG:3857').to_crs('EPSG:4326').iloc[0]
     print(f'Official Plaza de la República polygon loaded ({len(plaza_rows)} features) with 20m no-building buffer.')
     # Official CABA street centerlines define the 9 de Julio no-building corridor.
-    street_layer = gpd.read_file(STREET_URL, bbox=(west, south, east, north))
+    street_layer = read_caba_resource("2941f731-0a2e-4391-b8c9-a2912a80c081", (west, south, east, north), "Callejero")
     if street_layer.crs is None:
         street_layer = street_layer.set_crs('EPSG:4326')
     elif street_layer.crs.to_epsg() != 4326:

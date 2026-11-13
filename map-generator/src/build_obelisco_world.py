@@ -406,7 +406,7 @@ def main():
         ("Banchero", "Avenida Corrientes 1300"),
         ("Sbarro", "Avenida Corrientes 1267"),
         ("Los Inmortales", "Avenida Corrientes 1369"),
-        ("Kentucky", "Avenida Corrientes 956"),
+        ("Kentucky", "Avenida Corrientes 961"),
         ("El Palacio de la Pizza", "Avenida Corrientes 751"),
         ("Ugi's", "Carlos Pellegrini 321"),
         ("Pizzería Génova", "Avenida Corrientes 872"),

@@ -60,6 +60,7 @@ const hint = hud.querySelector<HTMLDivElement>('#hint')!;
 const locationLabel = hud.querySelector<HTMLDivElement>('#location-label')!;
 const palermoButton = hud.querySelector<HTMLButtonElement>('#level-palermo')!;
 const obeliscoButton = hud.querySelector<HTMLButtonElement>('#level-obelisco')!;
+const levelKicker = startPanel.querySelector<HTMLParagraphElement>('p')!;
 const mapAttribution = hud.querySelector<HTMLDivElement>('#map-attribution')!;
 fetch('data/obelisco-world.json').then(r => { if (!r.ok) throw new Error('OSM data not ready'); return r.json() as Promise<ObeliscoWorldData>; }).then(data => {
   obeliscoColliders = createObeliscoWorld(obeliscoGroup, data);
@@ -84,6 +85,7 @@ function switchLevel(level: 'palermo' | 'obelisco') {
   velocity.set(0, 0, 0); grounded = true; flying = false; yaw = 0; pitch = 0;
   modeLabel.textContent = 'A PIE'; modeLabel.classList.remove('flying');
   locationLabel.innerHTML = '<span class="live-dot"></span> ' + (level === 'palermo' ? 'PALERMO SOHO' : 'OBELISCO · SAN NICOLÁS') + ' · BUENOS AIRES';
+  levelKicker.textContent = level === 'palermo' ? 'PALERMO SOHO · BUILD 01' : 'OBELISCO · CENTRO PORTEÑO';
   palermoButton.classList.toggle('active', level === 'palermo');
   obeliscoButton.classList.toggle('active', level === 'obelisco');
   mapAttribution.textContent = level === 'obelisco' ? '© OpenStreetMap contributors · ODbL 1.0 · alturas estimadas donde no hay dato' : '';

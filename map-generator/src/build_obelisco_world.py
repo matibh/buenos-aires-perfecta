@@ -592,33 +592,17 @@ def main():
     facade_photo_dir.mkdir(parents=True, exist_ok=True)
     facade_cache_dir.mkdir(parents=True, exist_ok=True)
     try:
-        # Resolve the frontage resource from the official Parcelas dataset.
-        # The old resource_show identifier was not a valid CKAN resource UUID.
-        frontage_meta = request_with_retries(
-            "https://data.buenosaires.gob.ar/api/3/action/package_show?id=parcelas",
-            "Official Parcelas dataset metadata", timeout=60
-        ).json()
-        if not frontage_meta.get("success"):
-            raise RuntimeError(f"CKAN did not return the official Parcelas dataset: {frontage_meta.get('error', {})}")
-        frontage_resources = frontage_meta.get("result", {}).get("resources", [])
-        frontage_matches = [
-            resource for resource in frontage_resources
-            if "frentes" in str(resource.get("name", "")).lower()
-            and ("shp" in str(resource.get("name", "")).lower()
-                 or str(resource.get("format", "")).lower() in {"shp", "zip"}
-                 or str(resource.get("url", "")).lower().endswith(".zip"))
-            and resource.get("url")
-        ]
-        if not frontage_matches:
-            raise RuntimeError(
-                "The official Parcelas dataset has no downloadable 'Frentes de parcelas (SHP)' resource; "
-                f"available resources: {[r.get('name') for r in frontage_resources]}"
-            )
-        frontage_resource = frontage_matches[0]
-        frontage_url = frontage_resource["url"]
+        # Official BA Data resource URL verified from the current Parcelas
+        # dataset metadata (resource ID juqdkmgo-1564-resource). Avoid a
+        # package_show slug lookup: the CKAN package identifier is juqdkmgo-156,
+        # not "parcelas", and the old API route can return an HTML error page.
+        frontage_url = (
+            "https://cdn.buenosaires.gob.ar/datosabiertos/datasets/"
+            "secretaria-de-desarrollo-urbano/parcelas/frentes-parcelas.zip"
+        )
         print(
-            f"Resolved official frontage source: {frontage_resource.get('name')} "
-            f"({frontage_resource.get('format', 'unknown format')})",
+            "Resolved official frontage source: Frentes de parcelas (SHP) "
+            "(BA Data, resource juqdkmgo-1564-resource; CC-BY-2.5-AR)",
             flush=True
         )
         frontage_cache = CACHE_DIR / "official-frontages.zip"

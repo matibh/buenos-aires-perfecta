@@ -6,8 +6,9 @@ const root = document.querySelector<HTMLDivElement>('#app');
 if (!root) throw new Error('No #app root');
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#b9c6c9');
-scene.fog = new THREE.Fog('#b9c6c9', 720, 1650);
+// Clear Buenos Aires daylight: blue sky, warm sun and distant atmospheric fade.
+scene.background = new THREE.Color('#83c9f2');
+scene.fog = new THREE.Fog('#a9d8ef', 1050, 2050);
 const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.1, 2400);
 const renderer = new THREE.WebGLRenderer({ antialias: devicePixelRatio <= 1.5, powerPreference: 'high-performance' });
 const maxPixelRatio = Math.min(devicePixelRatio, 1.25);
@@ -20,11 +21,39 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 root.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xe8f3ff, 0x62584b, 1.15));
-scene.add(new THREE.AmbientLight(0xffffff, 0.22));
-const sun = new THREE.DirectionalLight(0xfff0d9, 2.8);
-sun.position.set(-55, 95, 40);
+scene.add(new THREE.HemisphereLight(0xd8efff, 0x756b58, 1.45));
+scene.add(new THREE.AmbientLight(0xffffff, 0.18));
+const sun = new THREE.DirectionalLight(0xfff4df, 2.25);
+sun.position.set(-120, 180, 90);
 scene.add(sun);
+
+// A small, static set of soft cumulus clouds. Instancing keeps this to one draw call.
+const cloudGeometry = new THREE.SphereGeometry(1, 8, 6);
+const cloudMaterial = new THREE.MeshBasicMaterial({
+  color: 0xffffff, transparent: true, opacity: 0.88, depthWrite: false,
+  fog: false
+});
+const cloudPuffs = new THREE.InstancedMesh(cloudGeometry, cloudMaterial, 36);
+cloudPuffs.frustumCulled = true;
+cloudPuffs.renderOrder = 1;
+const cloudDummy = new THREE.Object3D();
+const cloudClusters = [
+  [-620, 205, -520, 1.0], [-260, 230, -760, .8], [180, 215, -680, .9],
+  [610, 225, -470, 1.1], [820, 205, 40, .75], [520, 235, 610, .9],
+  [-40, 220, 780, .8], [-570, 210, 520, .85], [-900, 230, -80, .7]
+];
+let cloudIndex = 0;
+for (const [cx, cy, cz, size] of cloudClusters) {
+  for (let puff = 0; puff < 4; puff++) {
+    const angle = puff * Math.PI * .5 + .35;
+    cloudDummy.position.set(cx + Math.cos(angle) * 15 * size, cy + (puff % 2) * 3, cz + Math.sin(angle) * 12 * size);
+    cloudDummy.scale.set(22 * size, 5.5 * size, 13 * size);
+    cloudDummy.updateMatrix();
+    cloudPuffs.setMatrixAt(cloudIndex++, cloudDummy.matrix);
+  }
+}
+cloudPuffs.instanceMatrix.needsUpdate = true;
+scene.add(cloudPuffs);
 
 const world = new THREE.Group();
 scene.add(world);

@@ -244,6 +244,45 @@ def osm_name_for(geom, osm_buildings):
     except Exception:
         return ""
 
+def building_appearance(geom, osm_buildings):
+    """Transfer explicitly mapped OSM facade/use attributes to matching footprints."""
+    try:
+        indexes = list(osm_buildings.sindex.query(geom, predicate="intersects"))
+        best_ratio, best = 0.0, None
+        area = geom.area
+        if area <= 0:
+            return {}
+        for idx in indexes:
+            candidate = osm_buildings.iloc[idx]
+            overlap = geom.intersection(candidate.geometry).area / area
+            if overlap > best_ratio:
+                best_ratio, best = overlap, candidate
+        if best is None or best_ratio < 0.20:
+            return {}
+        fields = {
+            "buildingType": "building", "buildingUse": "building:use",
+            "levels": "building:levels", "flats": "building:flats",
+            "facadeMaterial": "building:facade:material",
+            "facadeColour": "building:facade:colour",
+            "architecture": "building:architecture", "roofShape": "roof:shape",
+            "roofMaterial": "roof:material", "roofColour": "roof:colour",
+        }
+        result = {}
+        for output, source in fields.items():
+            value = best.get(source)
+            if valid_value(value):
+                result[output] = str(value).strip()[:80]
+        if "facadeMaterial" not in result and valid_value(best.get("building:material")):
+            result["facadeMaterial"] = str(best.get("building:material")).strip()[:80]
+        if "facadeColour" not in result:
+            colour = best.get("building:colour") or best.get("building:color")
+            if valid_value(colour):
+                result["facadeColour"] = str(colour).strip()[:40]
+        return result
+    except Exception:
+        return {}
+
+
 def covered_by_official(geom, official_layer):
     if official_layer is None: return False
     try:
@@ -310,7 +349,7 @@ def main():
 
     def row_tags(row):
         result = {}
-        for key in ("building","height","building:levels","levels","name","nombre","nombre_ev","nom_mapa","nomoficial","highway","leisure","landuse","natural","width","surface","amenity","shop","office","tourism","craft","healthcare","brand","operator","cuisine","opening_hours","website","phone","addr:street","addr:housenumber","flagtipo"):
+        for key in ("building","height","building:levels","building:flats","building:use","building:material","building:colour","building:color","building:facade:colour","building:facade:color","building:facade:material","building:architecture","roof:shape","roof:material","roof:colour","levels","name","nombre","nombre_ev","nom_mapa","nomoficial","highway","leisure","landuse","natural","width","surface","amenity","shop","office","tourism","craft","healthcare","brand","operator","cuisine","opening_hours","website","phone","addr:street","addr:housenumber","flagtipo"):
             value = row.get(key)
             if valid_value(value): result[key] = value
         return result
@@ -379,7 +418,8 @@ def main():
                 if poly.area < 0.00000000002: continue
                 features.append({
                     "type":"building","polygons":[ring(poly.exterior.coords)],
-                    "height":height,"heightSource":source,"name":name[:100]
+                    "height":height,"heightSource":source,"name":name[:100],
+                    **building_appearance(geom, osm_buildings)
                 })
                 counts["buildings"] += 1
                 counts["official_building_volumes"] += 1
@@ -407,7 +447,8 @@ def main():
             features.append({
                 "type":"building","polygons":[ring(poly.exterior.coords)],
                 "height":height,"heightSource":source,
-                "name":str(tags_row.get("name") or "")[:100]
+                "name":str(tags_row.get("name") or "")[:100],
+                **building_appearance(geom, osm_buildings)
             })
             counts["buildings"] += 1
             counts["osm_buildings_fallback"] += 1

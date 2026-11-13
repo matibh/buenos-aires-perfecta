@@ -606,7 +606,7 @@ def main():
             "profile": "corrientes-1252-1264-twin-domes", "name": "Edificio Corrientes 1252-1264",
             "floors": 7, "rear_floors": 5, "facade": "#c9c0b2", "trim": "#e8dfd2",
             "window_frame": "#3d3935", "balcony": "yes", "surface": "stone",
-            "date": "2026-02-10", "status": "verified_2026",
+            "date": "2026-02-10", "status": "verified_2026", "scope": "full street-facing facade and roofline",
             "source": "https://www.clarin.com/ciudades/edificio-avenida-corrientes-cupulas-gemelas-vacio-hace-20-anos-historias-vivieron_0_o9D6qHXmcw.amp.html",
         },
         {
@@ -615,12 +615,15 @@ def main():
             "floors": None, "facade": "#b51f2b", "trim": "#c9a35e",
             "window_frame": "#d0a65d", "balcony": "", "surface": "glazed-ceramic",
             "storefront_count": 4, "awning": "red-white", "plinth": "#171719",
-            "date": "2026-03-16", "status": "verified_2026",
+            "date": "2026-03-16", "status": "verified_2026_partial",
+            "scope": "ground-floor storefront, glazing, awning and signage only",
             "source": "https://commons.wikimedia.org/wiki/File:Fachada_de_la_tradicional_pizzer%C3%ADa_Pizzer%C3%ADa_G%C3%BCerr%C3%ADn_sobre_la_Avenida_Corrientes,_en_la_Ciudad_de_Buenos_Aires.jpg",
         },
     ]
     architectural_reference_matches = 0
     architectural_current_2026 = 0
+    architectural_current_2026_partial = 0
+    matched_architectural_profiles = set()
 
     # Parcel-level facade references: use USIG photos only as visual measurements.
     # Original photo pixels are never shipped in the game; only derived color samples
@@ -759,8 +762,8 @@ def main():
                 number_match = re.search(r"\\d+", str(frontage.get("num_dom") or ""))
                 if not number_match:
                     continue
-                number = int(number_match.group(0))
-                if not reference["number_min"] <= number <= reference["number_max"]:
+                house_number = int(number_match.group(0))
+                if not reference["number_min"] <= house_number <= reference["number_max"]:
                     continue
                 parcel_smp = normalize_smp(frontage.get("__smp_norm"))
                 if parcel_smp and parcel_smp in official_smp:
@@ -791,6 +794,7 @@ def main():
                 feature["plinthHex"] = reference.get("plinth", "")
                 feature["facadeReferenceDate"] = reference.get("date", "")
                 feature["facadeReferenceStatus"] = reference.get("status", "architectural_reference")
+                feature["facadeReferenceScope"] = reference.get("scope", "architectural description; current state not verified")
                 feature["facadeReferenceSource"] = reference["source"]
                 matched_volumes += 1
             if reference["profile"] == "guerrin-2026":
@@ -804,14 +808,18 @@ def main():
                         feature["signReferenceSource"] = reference["source"]
                         feature["awningProfile"] = "red-white"
             architectural_reference_matches += 1
-            if reference.get("status") == "verified_2026":
+            matched_architectural_profiles.add(reference["profile"])
+            if reference.get("status", "").startswith("verified_2026"):
                 architectural_current_2026 += 1
+            if reference.get("status") == "verified_2026_partial":
+                architectural_current_2026_partial += 1
             print(
                 f"Applied cadastral architectural profile: {reference['name']} · "
                 f"parcels={len(matched_smp)} · volumes={matched_volumes}",
                 flush=True
             )
         counts["architectural_reference_matches"] = architectural_reference_matches
+        counts["facade_current_2026_partial"] = architectural_current_2026_partial
 
 
         matching_smp = official_smp.intersection(frontage_smp) if official_smp else set()
@@ -1089,6 +1097,8 @@ def main():
         sources.append({"name":"Buenos Aires Ciudad · Frentes de parcelas","license":"CC-BY-4.0","attribution":"Buenos Aires Ciudad · catastro parcelario","url":"https://data.buenosaires.gob.ar/"})
     if architectural_reference_matches:
         sources.append({"name":"Moderna Buenos Aires + referencias periodísticas de arquitectura","license":"Metadata and descriptive facts only","attribution":"Moderna Buenos Aires; Clarín · references linked per building"})
+    if "guerrin-2026" in matched_architectural_profiles:
+        sources.append({"name":"Wikimedia Commons · Pizzería Güerrín facade photo (16 March 2026)","license":"CC BY-SA 4.0","attribution":"Horacio Cambeiro","url":"https://commons.wikimedia.org/wiki/File:Fachada_de_la_tradicional_pizzer%C3%ADa_Pizzer%C3%ADa_G%C3%BCerr%C3%ADn_sobre_la_Avenida_Corrientes,_en_la_Ciudad_de_Buenos_Aires.jpg"})
     payload = {
         "source":"Buenos Aires Ciudad · Tejido Urbano, Espacios Verdes Públicos, Callejero + OpenStreetMap contributors",
         "sources":sources,

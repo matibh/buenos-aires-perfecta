@@ -19,6 +19,7 @@ type GeoFeature = {
   facadeHexSecondary?: string;
   facadeReferenceDate?: string;
   facadeReferenceStatus?: string;
+  facadeReferenceScope?: string;
   facadeReferenceSource?: string;
   facadeSurface?: string;
   facadeLine?: number[][];
@@ -504,7 +505,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     const pizza=feature.isPizzeria===true;
     const category=(feature.category||'').toLowerCase();
     const signProfile=feature.signProfile || '';
-    const palette = signProfile === 'guerrin-2026' ? ['#4a171d','#d5b16d'] :
+    const palette = signProfile === 'guerrin-2026' ? ['#191817','#d5b16d'] :
       pizza ? ['#9b2e25','#fff2d7'] :
       category==='shop' ? ['#263c48','#f5e9d5'] :
       category==='amenity' ? ['#294a3b','#f3ead8'] : ['#343333','#f2eee5'];
@@ -518,16 +519,16 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     if(signProfile === 'guerrin-2026'){
       atlasCtx.strokeStyle='#d5b16d';atlasCtx.lineWidth=2;atlasCtx.strokeRect(sx+6,sy+6,signCellW-12,signCellH-12);
       atlasCtx.textAlign='center';atlasCtx.textBaseline='middle';
-      atlasCtx.font='italic bold 34px Georgia';atlasCtx.fillStyle='#e4c783';
-      atlasCtx.fillText('Güerrín',sx+signCellW/2,sy+28,signCellW-20);
-      atlasCtx.font='bold 9px Arial';atlasCtx.fillText('PATIO NAPOLITANO · DESDE 1932',sx+signCellW/2,sy+51,signCellW-16);
+      atlasCtx.font='bold 23px Georgia';atlasCtx.fillStyle='#e4c783';
+      atlasCtx.fillText('PATIO NAPOLITANO',sx+signCellW/2,sy+27,signCellW-18);
+      atlasCtx.font='italic bold 15px Georgia';atlasCtx.fillText('PIZZERÍA GÜERRÍN',sx+signCellW/2,sy+49,signCellW-18);
     } else {
       atlasCtx.fillStyle='#fff8e9';
       atlasCtx.fillText(venueName,sx+signCellW/2,sy+signCellH/2,signCellW-18);
     }
 
     const width=signProfile === 'guerrin-2026'
-      ? THREE.MathUtils.clamp(best.length*.82,5.2,8.5)
+      ? THREE.MathUtils.clamp(best.length*.58,3.6,5.4)
       : THREE.MathUtils.clamp(Math.min(best.length*.78,venueName.length*.105+1.7),2.2,7.4);
     const plane=new THREE.PlaneGeometry(1,1);
     const uv=plane.getAttribute('uv');
@@ -535,7 +536,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       uv.setXY(v,(sx+uv.getX(v)*signCellW)/atlas.width,1-(sy+(1-uv.getY(v))*signCellH)/atlas.height);
     }
     plane.applyMatrix4(new THREE.Matrix4().compose(
-      new THREE.Vector3(best.x+Math.sin(best.angle)*.20,signProfile === 'guerrin-2026' ? 3.6 : 3.45,best.z+Math.cos(best.angle)*.20),
+      new THREE.Vector3(best.x+Math.sin(best.angle)*.20,signProfile === 'guerrin-2026' ? 1.9 : 3.45,best.z+Math.cos(best.angle)*.20),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0,best.angle,0)),
       new THREE.Vector3(width,signProfile === 'guerrin-2026' ? 1.12 : .78,1)
     ));

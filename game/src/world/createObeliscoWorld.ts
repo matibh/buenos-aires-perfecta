@@ -24,10 +24,11 @@ type GeoFeature = {
 export type ObeliscoWorldData = { origin: { lon: number; lat: number }; features: GeoFeature[]; counts: Record<string, number> };
 export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: number; height: number };
 
-const ROAD = new THREE.MeshStandardMaterial({ color: 0x303638, roughness: .98, side: THREE.DoubleSide });
-const GREEN = new THREE.MeshStandardMaterial({ color: 0x66845c, roughness: 1, side: THREE.DoubleSide });
-const PLAZA = new THREE.MeshStandardMaterial({ color: 0x999991, roughness: 1, side: THREE.DoubleSide });
-const BUILDING_COLORS = [0xc9c0b3,0xd8d0c4,0xbcb5aa,0xd5c8b6,0xb5b1aa,0xc6b69f,0xded8cd];
+const ROAD = new THREE.MeshStandardMaterial({ color: 0x292d2f, roughness: .96, side: THREE.DoubleSide });
+const SIDEWALK = new THREE.MeshStandardMaterial({ color: 0xaaa69d, roughness: 1, side: THREE.DoubleSide });
+const GREEN = new THREE.MeshStandardMaterial({ color: 0x526d4d, roughness: 1, side: THREE.DoubleSide });
+const PLAZA = new THREE.MeshStandardMaterial({ color: 0x8d8b84, roughness: 1, side: THREE.DoubleSide });
+const BUILDING_COLORS = [0xb9b3a9,0xc9c0b4,0xa9a49c,0xd0c7b9,0xaaa69e,0xbeb5a7,0xd7d0c5,0x9f9d98,0xc3b8a8,0xb1aaa0,0xd9d1c4,0xaaaeb0,0xc5c2bb,0x968f86];
 const BUILDING_MATERIALS = BUILDING_COLORS.map(color => new THREE.MeshStandardMaterial({ color, roughness: .94 }));
 const WHITE = new THREE.MeshStandardMaterial({ color: 0xe8e7df, roughness: .9 });
 const DARK = new THREE.MeshStandardMaterial({ color: 0x252c30, roughness: .35, metalness: .12 });
@@ -54,13 +55,13 @@ function buildingGeometry(ring: number[][], origin: {lon:number;lat:number}, hei
   geometry.rotateX(-Math.PI/2);
   return geometry;
 }
-function roadGeometry(points: number[][], width: number, origin: {lon:number;lat:number}) {
+function roadGeometry(points: number[][], width: number, origin: {lon:number;lat:number}, y = .055) {
   const vertices: number[]=[]; const indices: number[]=[];
   const coords=points.map(([lon,lat])=>local(lon,lat,origin));
   for(let i=0;i<coords.length-1;i++){
     const a=coords[i],b=coords[i+1],dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz)||1;
     const ox=-dz/len*width/2,oz=dx/len*width/2,base=vertices.length/3;
-    vertices.push(a.x+ox,.055,a.z+oz,a.x-ox,.055,a.z-oz,b.x+ox,.055,b.z+oz,b.x-ox,.055,b.z-oz);
+    vertices.push(a.x+ox,y,a.z+oz,a.x-ox,y,a.z-oz,b.x+ox,y,b.z+oz,b.x-ox,y,b.z-oz);
     indices.push(base,base+2,base+1,base+1,base+2,base+3);
   }
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3)); g.setIndex(indices); g.computeVertexNormals();
@@ -132,7 +133,9 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   }
 
   const roads: THREE.BufferGeometry[]=[];
-  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; windows: Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>; frames: Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>; centerX:number; centerZ:number };
+  const sidewalks: THREE.BufferGeometry[]=[];
+  type InstanceBox = {x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number};
+  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; windows: InstanceBox[]; frames: InstanceBox[]; storefronts: InstanceBox[]; rooftopUnits: InstanceBox[]; centerX:number; centerZ:number };
   const chunkBuilds = new Map<string, ChunkBuild>();
   const CHUNK_SIZE = 256;
   const getChunk = (x:number,z:number):ChunkBuild => {
@@ -146,7 +149,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const detail=new THREE.Group();
       detail.name='chunk-details';
       group.add(geometryGroup,detail);
-      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),windows:[],frames:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
+      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),windows:[],frames:[],storefronts:[],rooftopUnits:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
       group.userData.renderChunk=true;
       group.userData.detailGroup=detail;
       group.userData.centerX=chunk.centerX;
@@ -162,9 +165,14 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   let colonLandmarkBuilt=false,granRexSignBuilt=false;
 
   for(const f of data.features){
-    if(f.type==='road' && f.line && f.line.length>1) roads.push(roadGeometry(f.line,f.width??9,data.origin));
+    if(f.type==='road' && f.line && f.line.length>1) {
+      const roadWidth=f.width??9;
+      if(roadWidth<=24) sidewalks.push(roadGeometry(f.line,roadWidth+5.2,data.origin,.025));
+      roads.push(roadGeometry(f.line,roadWidth,data.origin,.065));
+    }
     if((f.type==='green'||f.type==='plaza') && f.polygons) for(const poly of f.polygons) if(poly.length>=4) group.add(polygonMesh(poly,data.origin,f.type==='plaza'?.17:.16,f.type==='plaza'?PLAZA:GREEN));
   }
+  addMerged(group,sidewalks,SIDEWALK);
   addMerged(group,roads,ROAD);
 
   // Real mapped footprints; facade openings are instanced to keep thousands of buildings performant.
@@ -180,6 +188,13 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),maxZ=Math.max(...zs);
       const chunk=getChunk((minX+maxX)/2,(minZ+maxZ)/2);
       chunk.buildings[materialIndex].push(buildingGeometry(ring,data.origin,height));
+      // Small rooftop plant rooms and HVAC boxes break up flat roof silhouettes.
+      if(footprintArea(ring,data.origin)>85) {
+        const roofX=(minX+maxX)/2, roofZ=(minZ+maxZ)/2;
+        const roofWidth=Math.min(3.2,Math.max(1.1,(maxX-minX)*.18));
+        const roofDepth=Math.min(2.4,Math.max(.9,(maxZ-minZ)*.16));
+        chunk.rooftopUnits.push({x:roofX,y:height+.48,z:roofZ,rotation:0,sx:roofWidth,sy:.9,sz:roofDepth});
+      }
       colliders.push({minX,maxX,minZ,maxZ,height});
 
       const landmark=(f.name||'').toLowerCase();
@@ -221,6 +236,11 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       for(let edge=0;edge<pts.length-1;edge++){
         const a=pts[edge],b=pts[edge+1],dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz);
         if (len > 2) facadeEdges.push({a,b,height});
+        if(len>=7) {
+          const angle=Math.atan2(-dz,dx), nx=Math.sin(angle), nz=Math.cos(angle);
+          const wx=(a.x+b.x)/2, wz=(a.z+b.z)/2;
+          chunk.storefronts.push({x:wx+nx*.11,y:1.45,z:wz+nz*.11,rotation:angle,sx:Math.min(len*.62,8.5),sy:2.35,sz:.075});
+        }
         if(len<5) continue;
         const count=Math.max(1,Math.floor(len/4.8));
         const angle=Math.atan2(-dz,dx);
@@ -241,6 +261,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     chunk.buildings.forEach((geometries,index)=>addMerged(chunk.geometryGroup,geometries,BUILDING_MATERIALS[index],true));
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),WINDOW_FRAME,chunk.frames);
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),GLASS,chunk.windows);
+    addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),GLASS,chunk.storefronts);
+    addInstancedBoxes(chunk.geometryGroup,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0x77766f,roughness:.9}),chunk.rooftopUnits);
     group.add(chunk.group);
   }
   addInstancedCylinders(group,new THREE.CylinderGeometry(.34,.43,5.8,8),new THREE.MeshStandardMaterial({color:0xd0c5b2,roughness:.9}),colonColumns);
@@ -341,13 +363,14 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   }
   for(const x of [-35,35]) for(let z=-600;z<=600;z+=34) treePositions.push({x,y:0,z});
   if(treePositions.length){
-    const trunkGeo=new THREE.CylinderGeometry(.13,.18,2.1,6),crownGeo=new THREE.IcosahedronGeometry(1.1,1);
-    const trunkMat=new THREE.MeshStandardMaterial({color:0x6d5039}),crownMat=new THREE.MeshStandardMaterial({color:0x426a49});
+    const trunkGeo=new THREE.CylinderGeometry(.16,.23,3.2,7),crownGeo=new THREE.IcosahedronGeometry(1.75,2);
+    const trunkMat=new THREE.MeshStandardMaterial({color:0x594333,roughness:1}),crownMat=new THREE.MeshStandardMaterial({color:0x365b3d,roughness:1});
     const trunks=new THREE.InstancedMesh(trunkGeo,trunkMat,treePositions.length),crowns=new THREE.InstancedMesh(crownGeo,crownMat,treePositions.length);
     const dummy=new THREE.Object3D();
     treePositions.forEach((p,i)=>{
-      dummy.position.set(p.x,1.05,p.z);dummy.scale.setScalar(1);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
-      dummy.position.y=2.65;dummy.scale.setScalar(1);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);
+      const scale=.78+((i*37)%11)/25;
+      dummy.position.set(p.x,1.6,p.z);dummy.scale.set(scale);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
+      dummy.position.y=3.7;dummy.scale.set(scale,scale*1.12,scale);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);
     });
     trunks.instanceMatrix.needsUpdate=true;crowns.instanceMatrix.needsUpdate=true;group.add(trunks,crowns);
   }

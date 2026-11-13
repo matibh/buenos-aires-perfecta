@@ -191,33 +191,6 @@ def main():
             counts["buildings"] += 1
             counts["osm_buildings_fallback"] += 1
 
-    # CABA public green-space polygons provide the authoritative open-space outlines.
-    try:
-        green_layer = gpd.read_file(GREEN_URL, bbox=(west, south, east, north))
-        if green_layer.crs is None:
-            green_layer = green_layer.set_crs("EPSG:4326")
-        elif green_layer.crs.to_epsg() != 4326:
-            green_layer = green_layer.to_crs("EPSG:4326")
-        green_layer = green_layer[green_layer.geometry.notna()].copy()
-        print(f"CABA public green spaces in extract: {len(green_layer)}")
-        for _, row in green_layer.iterrows():
-            geom = row.geometry
-            props = row_tags(row)
-            label = str(props.get("nombre") or props.get("nombre_ev") or props.get("nom_mapa") or "")
-            if geom.geom_type not in ("Polygon", "MultiPolygon"):
-                continue
-            for poly in polygons_of(geom):
-                if poly.area < 0.0000000001:
-                    continue
-                kind = "plaza" if "plaza de la rep" in label.lower() else "green"
-                features.append({"type":kind,"polygons":[ring(poly.exterior.coords)],"name":label[:100],"source":"Buenos Aires Ciudad · Espacios Verdes Públicos"})
-                if kind == "plaza":
-                    counts["official_plaza_polygons"] = counts.get("official_plaza_polygons", 0) + 1
-                else:
-                    counts["official_green_polygons"] = counts.get("official_green_polygons", 0) + 1
-    except Exception as exc:
-        print(f"WARNING: official public green-space layer unavailable ({exc}); OSM green features are fallback only.")
-
     # Add the exact official public-space polygons to the rendered ground.
     for _, row in green_layer.iterrows():
         geom = row.geometry

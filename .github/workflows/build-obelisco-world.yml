@@ -22,7 +22,7 @@ permissions:
 
 # Each run gets its own group: a new commit won't cancel an active build.
 concurrency:
-  group: github-pages-${{ github.run_id }}
+  group: obelisco-pages
   cancel-in-progress: false
 
 jobs:

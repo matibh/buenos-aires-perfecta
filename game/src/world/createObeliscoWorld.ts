@@ -369,7 +369,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     const dummy=new THREE.Object3D();
     treePositions.forEach((p,i)=>{
       const scale=.78+((i*37)%11)/25;
-      dummy.position.set(p.x,1.6,p.z);dummy.scale.set(scale);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
+      dummy.position.set(p.x,1.6,p.z);dummy.scale.setScalar(scale);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);
       dummy.position.y=3.7;dummy.scale.set(scale,scale*1.12,scale);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);
     });
     trunks.instanceMatrix.needsUpdate=true;crowns.instanceMatrix.needsUpdate=true;group.add(trunks,crowns);

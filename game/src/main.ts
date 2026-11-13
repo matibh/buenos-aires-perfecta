@@ -7,7 +7,7 @@ if (!root) throw new Error('No #app root');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#aebfc0');
-scene.fog = new THREE.Fog('#aebfc0', 360, 980);
+scene.fog = new THREE.Fog('#aebfc0', 340, 900);
 const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 2400);
 const renderer = new THREE.WebGLRenderer({ antialias: devicePixelRatio <= 1.5, powerPreference: 'high-performance' });
 const maxPixelRatio = Math.min(devicePixelRatio, 1.25);
@@ -120,8 +120,8 @@ function updateChunkVisibility(now: number) {
   const px = player.x, pz = player.z;
   for (const chunk of renderChunks) {
     const distance = Math.hypot(chunk.x - px, chunk.z - pz);
-    const shouldShow = distance < 920;
-    const shouldShowDetail = distance < 430;
+    const shouldShow = distance < 850;
+    const shouldShowDetail = distance < 390;
     if (chunk.visible !== shouldShow) { chunk.group.visible = shouldShow; chunk.visible = shouldShow; }
     if (chunk.detailVisible !== shouldShowDetail) { chunk.detail.visible = shouldShowDetail; chunk.detailVisible = shouldShowDetail; }
   }

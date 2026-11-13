@@ -226,7 +226,10 @@ def main():
         geom = row.geometry
         tags_row = row_tags(row)
         business_category = next((key for key in ("shop", "amenity", "office", "tourism", "craft", "healthcare") if tags_row.get(key)), None)
-        if business_category and geom.geom_type in ("Point", "Polygon", "MultiPolygon", "LineString", "MultiLineString"):
+        business_kind = str(tags_row.get(business_category) or "") if business_category else ""
+        commercial_amenities = {"restaurant", "fast_food", "cafe", "bar", "pub", "food_court", "ice_cream", "pharmacy", "bank", "atm", "fuel", "cinema", "theatre", "marketplace", "clinic", "dentist", "veterinary"}
+        is_place = business_category in ("shop", "office", "tourism", "craft", "healthcare") or (business_category == "amenity" and business_kind in commercial_amenities)
+        if is_place and geom.geom_type in ("Point", "Polygon", "MultiPolygon", "LineString", "MultiLineString"):
             location = geom if geom.geom_type == "Point" else geom.representative_point()
             business_name = str(tags_row.get("name") or tags_row.get("brand") or "")
             features.append({

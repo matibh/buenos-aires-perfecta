@@ -302,58 +302,96 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   addInstancedCylinders(group,new THREE.CylinderGeometry(.34,.43,5.8,8),new THREE.MeshStandardMaterial({color:0xd0c5b2,roughness:.9}),colonColumns);
 
 
-  // Real mapped business names become modest facade-mounted signs. The label text
-  // comes from the mapped venue name; no invented shop brands are generated.
+  // Real OSM business names become a shared-atlas signage layer.
+  // One merged sign mesh + instanced awnings keeps storefront detail inexpensive.
   const signFeatures = data.features
-    .filter(feature => feature.type === 'business' && feature.point && feature.name?.trim())
+    .filter(feature => feature.type === 'business' && feature.point && (feature.brand?.trim() || feature.name?.trim()))
     .sort((a,b) => Number(b.isPizzeria === true) - Number(a.isPizzeria === true))
-    .slice(0,120);
-  for (const feature of signFeatures) {
+    .slice(0,256);
+  const atlas = document.createElement('canvas');
+  atlas.width = 1024; atlas.height = 4096;
+  const atlasCtx = atlas.getContext('2d');
+  const signGeometries: THREE.BufferGeometry[] = [];
+  const awnings: InstanceBox[] = [];
+  const awningDark: InstanceBox[] = [];
+  const signCellW = 256, signCellH = 64, signColumns = 4;
+  const awningGeometry = new THREE.BoxGeometry(1,1,1);
+  for (let index=0; index<signFeatures.length; index++) {
+    const feature = signFeatures[index];
     const coordinates = feature.point;
-    const venueName = feature.name?.trim();
+    const venueName = (feature.brand?.trim() || feature.name?.trim() || '').slice(0,42);
     if (!coordinates || !venueName) continue;
     const point = local(coordinates[0], coordinates[1], data.origin);
-    let best: {distance:number;x:number;z:number;angle:number;height:number} | null = null;
+    let best: {distance:number;x:number;z:number;angle:number;height:number;length:number} | null = null;
     for (const edge of facadeEdges) {
-      const dx = edge.b.x - edge.a.x, dz = edge.b.z - edge.a.z;
-      const lengthSq = dx*dx + dz*dz;
-      if (lengthSq < .01) continue;
-      const t = THREE.MathUtils.clamp(((point.x-edge.a.x)*dx + (point.z-edge.a.z)*dz) / lengthSq, 0, 1);
-      const x = edge.a.x + t*dx, z = edge.a.z + t*dz;
-      const distance = Math.hypot(point.x-x, point.z-z);
-      if (!best || distance < best.distance) best = {distance,x,z,angle:-Math.atan2(dz,dx),height:edge.height};
+      const dx = edge.b.x-edge.a.x, dz=edge.b.z-edge.a.z;
+      const lengthSq = dx*dx+dz*dz;
+      if (lengthSq < 0.01) continue;
+      const length = Math.sqrt(lengthSq);
+      const t = THREE.MathUtils.clamp(((point.x-edge.a.x)*dx+(point.z-edge.a.z)*dz)/lengthSq,0,1);
+      const x=edge.a.x+t*dx, z=edge.a.z+t*dz;
+      const distance=Math.hypot(point.x-x,point.z-z);
+      if (!best || distance<best.distance) best={distance,x,z,angle:-Math.atan2(dz,dx),height:edge.height,length};
     }
-    if (!best || best.distance > 18) continue;
-    const canvas = document.createElement('canvas');
-    canvas.width = 384; canvas.height = 96;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) continue;
-    const pizza = feature.isPizzeria === true;
-    ctx.fillStyle = pizza ? '#9b2e25' : '#20282b';
-    ctx.fillRect(0,0,384,96);
-    ctx.fillStyle = pizza ? '#fff2d7' : '#f1eadc';
-    ctx.fillRect(6,6,372,84);
-    ctx.fillStyle = pizza ? '#9b2e25' : '#20282b';
-    ctx.fillRect(11,11,362,74);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    let fontSize = 40;
-    do {
-      ctx.font = `bold ${fontSize}px Arial`;
-      fontSize -= 2;
-    } while (ctx.measureText(venueName).width > 330 && fontSize > 20);
-    ctx.fillStyle = '#fff5e5';
-    ctx.fillText(venueName.slice(0,38),192,48,340);
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const material = new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide});
-    const width = THREE.MathUtils.clamp(venueName.length * .19, 2.1, 5.2);
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(width,.72),material);
-    sign.position.set(best.x,best.height > 5 ? 3.55 : 2.8,best.z);
-    sign.rotation.y = best.angle;
-    sign.position.x += Math.sin(best.angle)*.13;
-    sign.position.z += Math.cos(best.angle)*.13;
-    group.add(sign);
+    if (!best || best.distance>15 || best.length<3.2 || !atlasCtx) continue;
+    const col=index%signColumns, row=Math.floor(index/signColumns);
+    const sx=col*signCellW, sy=row*signCellH;
+    const pizza=feature.isPizzeria===true;
+    const category=(feature.category||'').toLowerCase();
+    const palette = pizza ? ['#9b2e25','#fff2d7'] :
+      category==='shop' ? ['#263c48','#f5e9d5'] :
+      category==='amenity' ? ['#294a3b','#f3ead8'] : ['#343333','#f2eee5'];
+    atlasCtx.fillStyle='#191919'; atlasCtx.fillRect(sx,sy,signCellW,signCellH);
+    atlasCtx.fillStyle=palette[0]; atlasCtx.fillRect(sx+3,sy+3,signCellW-6,signCellH-6);
+    atlasCtx.fillStyle=palette[1]; atlasCtx.fillRect(sx+5,sy+5,signCellW-10,2);
+    atlasCtx.textAlign='center'; atlasCtx.textBaseline='middle';
+    let fontSize=27;
+    do { atlasCtx.font='bold '+fontSize+'px Arial'; fontSize-=1; }
+    while(atlasCtx.measureText(venueName).width>signCellW-18 && fontSize>11);
+    atlasCtx.fillStyle='#fff8e9';
+    atlasCtx.fillText(venueName,sx+signCellW/2,sy+signCellH/2,signCellW-18);
+
+    const width=THREE.MathUtils.clamp(Math.min(best.length*.78,venueName.length*.105+1.7),2.2,7.4);
+    const plane=new THREE.PlaneGeometry(1,1);
+    const uv=plane.getAttribute('uv');
+    for(let v=0;v<uv.count;v++){
+      uv.setXY(v,(sx+uv.getX(v)*signCellW)/atlas.width,1-(sy+(1-uv.getY(v))*signCellH)/atlas.height);
+    }
+    plane.applyMatrix4(new THREE.Matrix4().compose(
+      new THREE.Vector3(best.x+Math.sin(best.angle)*.20,3.45,best.z+Math.cos(best.angle)*.20),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0,best.angle,0)),
+      new THREE.Vector3(width,.78,1)
+    ));
+    signGeometries.push(plane);
+    const awningItem={x:best.x+Math.sin(best.angle)*.48,y:2.72,z:best.z+Math.cos(best.angle)*.48,rotation:best.angle,sx:width,sy:.32,sz:.82};
+    (pizza || category==='amenity' ? awningDark : awnings).push(awningItem);
   }
+  if(signGeometries.length && atlasCtx){
+    const mergedSigns=mergeGeometries(signGeometries,false);
+    if(mergedSigns){
+      const signTexture=new THREE.CanvasTexture(atlas);
+      signTexture.colorSpace=THREE.SRGBColorSpace;
+      signTexture.anisotropy=4;
+      const signMaterial=new THREE.MeshBasicMaterial({map:signTexture,side:THREE.DoubleSide});
+      const signs=new THREE.Mesh(mergedSigns,signMaterial);
+      signs.name='mapped-business-signs';
+      group.add(signs);
+    }
+    signGeometries.forEach(geometry=>geometry.dispose());
+  }
+  const awningCanvas=document.createElement('canvas');
+  awningCanvas.width=128; awningCanvas.height=64;
+  const awningCtx=awningCanvas.getContext('2d');
+  if(awningCtx){
+    awningCtx.fillStyle='#eee5d4'; awningCtx.fillRect(0,0,128,64);
+    for(let x=0;x<128;x+=32){awningCtx.fillStyle='#b33b30';awningCtx.fillRect(x,0,16,64);}
+  }
+  const awningTexture=new THREE.CanvasTexture(awningCanvas);
+  awningTexture.colorSpace=THREE.SRGBColorSpace;
+  const stripedAwning=new THREE.MeshStandardMaterial({map:awningTexture,roughness:.9});
+  const plainAwning=new THREE.MeshStandardMaterial({color:0x334b50,roughness:.9});
+  addInstancedBoxes(group,awningGeometry,stripedAwning,awningDark);
+  addInstancedBoxes(group,awningGeometry,plainAwning,awnings);
 
   // Boulevard lane dashes and pedestrian crossings: the width of 9 de Julio must read at street level.
   const laneDashes:Array<{x:number;y:number;z:number;sx:number;sy:number;sz:number}>=[];

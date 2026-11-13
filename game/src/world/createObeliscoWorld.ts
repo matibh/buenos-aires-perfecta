@@ -26,6 +26,11 @@ type GeoFeature = {
   frontageClass?: string;
   frontageUpdated?: string;
   balconyTag?: string;
+  architectureProfile?: string;
+  architectureReference?: string;
+  architectureName?: string;
+  architecturalFloors?: number;
+  windowFrameHex?: string;
   smp?: string;
   architecture?: string;
   roofShape?: string;
@@ -160,7 +165,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const roads: THREE.BufferGeometry[]=[];
   const sidewalks: THREE.BufferGeometry[]=[];
   type InstanceBox = {x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number};
-  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; sampledBuildings: Map<string, THREE.BufferGeometry[]>; sampledFrames: Map<string, InstanceBox[]>; windows: InstanceBox[]; frames: InstanceBox[]; storefronts: InstanceBox[]; balconies: InstanceBox[]; balconyRails: InstanceBox[]; cornices: InstanceBox[]; pilasters: InstanceBox[]; rooftopUnits: InstanceBox[]; centerX:number; centerZ:number };
+  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; sampledBuildings: Map<string, THREE.BufferGeometry[]>; sampledFrames: Map<string, InstanceBox[]>; windows: InstanceBox[]; frames: InstanceBox[]; storefronts: InstanceBox[]; balconies: InstanceBox[]; balconyRails: InstanceBox[]; cornices: InstanceBox[]; pilasters: InstanceBox[]; domes: Array<{x:number;y:number;z:number;radius:number}>; rooftopUnits: InstanceBox[]; centerX:number; centerZ:number };
   const chunkBuilds = new Map<string, ChunkBuild>();
   const CHUNK_SIZE = 256;
   const getChunk = (x:number,z:number):ChunkBuild => {
@@ -174,7 +179,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const detail=new THREE.Group();
       detail.name='chunk-details';
       group.add(geometryGroup,detail);
-      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),sampledBuildings:new Map(),sampledFrames:new Map(),windows:[],frames:[],storefronts:[],balconies:[],balconyRails:[],cornices:[],pilasters:[],rooftopUnits:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
+      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),sampledBuildings:new Map(),sampledFrames:new Map(),windows:[],frames:[],storefronts:[],balconies:[],balconyRails:[],cornices:[],pilasters:[],domes:[],rooftopUnits:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
       group.userData.renderChunk=true;
       group.userData.detailGroup=detail;
       group.userData.centerX=chunk.centerX;
@@ -185,6 +190,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     }
     return chunk;
   };
+  const renderedDomeParcels = new Set<string>();
   const colonColumns:Array<{x:number;y:number;z:number}>=[]; 
   const facadeEdges:Array<{a:{x:number;z:number};b:{x:number;z:number};height:number}>=[]; 
   const facadePaletteIndex = (feature: GeoFeature, fallback: number) => {
@@ -280,12 +286,27 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
 
       // Repeated window bays, aligned to each actual footprint edge.
       const taggedLevels = Number.parseFloat(f.levels || '');
-      const floorCount = Number.isFinite(taggedLevels) && taggedLevels >= 1 && taggedLevels <= 60
-        ? Math.round(taggedLevels) : Math.max(1,Math.floor((height-2.8)/3.25));
+      const explicitFloors = Number(f.architecturalFloors);
+      const floorCount = Number.isFinite(explicitFloors) && explicitFloors >= 1 && explicitFloors <= 60
+        ? Math.round(explicitFloors)
+        : Number.isFinite(taggedLevels) && taggedLevels >= 1 && taggedLevels <= 60
+          ? Math.round(taggedLevels) : Math.max(1,Math.floor((height-2.8)/3.25));
+      const floorHeight = height / floorCount;
       const buildingKind = ((f.buildingType || '') + ' ' + (f.buildingUse || '')).toLowerCase();
       const residential = /apartments|residential|dwelling|house|flats/.test(buildingKind);
       const measuredFrontage = f.facadeLine && f.facadeLine.length >= 2
         ? f.facadeLine.map(([lon,lat]) => local(lon,lat,data.origin)) : null;
+      if (f.architectureProfile === 'corrientes-1252-1264-twin-domes' && measuredFrontage && measuredFrontage.length >= 2) {
+        const parcelKey = f.smp || f.architectureProfile;
+        if (!renderedDomeParcels.has(parcelKey)) {
+          renderedDomeParcels.add(parcelKey);
+          const first = measuredFrontage[0], last = measuredFrontage[measuredFrontage.length-1];
+          for (const t of [.08,.92]) {
+            const x=first.x+(last.x-first.x)*t,z=first.z+(last.z-first.z)*t;
+            chunk.domes.push({x,y:height+.65,z,radius:2.15});
+          }
+        }
+      }
       const facadePath = measuredFrontage && measuredFrontage.length >= 2 ? measuredFrontage : pts;
       for(let edge=0;edge<facadePath.length-1;edge++){
         const a=facadePath[edge],b=facadePath[edge+1],dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz);
@@ -300,15 +321,17 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
         const angle=Math.atan2(-dz,dx);
         const nx=Math.sin(angle),nz=Math.cos(angle);
         for(let floor=0;floor<floorCount;floor++){
-          const y=2.45+floor*3.2;
+          const y=floorHeight*(floor+.72);
+          const windowHeight=Math.min(1.46,floorHeight*.48);
+          const windowWidth=Math.min(1.15,Math.max(.72,len/(count+1)*.42));
           for(let bay=0;bay<count;bay++){
             const t=(bay+.5)/count,wx=a.x+dx*t,wz=a.z+dz*t;
             const x=wx+nx*.085,z=wz+nz*.085;
-            chunk.windows.push({x,y,z,rotation:angle,sx:1.05,sy:1.32,sz:.06});
-            const trimHex = /^#[0-9a-f]{6}$/i.test(f.facadeHexSecondary || '') ? f.facadeHexSecondary!.toLowerCase() : '';
+            chunk.windows.push({x,y,z,rotation:angle,sx:windowWidth,sy:windowHeight,sz:.06});
+            const trimHex = /^#[0-9a-f]{6}$/i.test(f.windowFrameHex || f.facadeHexSecondary || '') ? (f.windowFrameHex || f.facadeHexSecondary)!.toLowerCase() : '';
             if (trimHex) {
               const trimBucket = chunk.sampledFrames.get(trimHex);
-              const frame = {x,y,z,rotation:angle,sx:1.19,sy:1.46,sz:.04};
+              const frame = {x,y,z,rotation:angle,sx:windowWidth*1.13,sy:windowHeight*1.1,sz:.04};
               if (trimBucket) trimBucket.push(frame);
               else chunk.sampledFrames.set(trimHex,[frame]);
             } else {
@@ -348,6 +371,18 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),DARK,chunk.balconyRails);
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0x9b958a,roughness:.88}),chunk.cornices);
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0xaaa398,roughness:.9}),chunk.pilasters);
+    if (chunk.domes.length) {
+      const domeGeometry=new THREE.SphereGeometry(1,18,10,0,Math.PI*2,0,Math.PI/2);
+      const domeMaterial=new THREE.MeshStandardMaterial({color:0x82776a,roughness:.72,metalness:.16});
+      const domeMesh=new THREE.InstancedMesh(domeGeometry,domeMaterial,chunk.domes.length);
+      const domeDummy=new THREE.Object3D();
+      chunk.domes.forEach((dome,index)=>{
+        domeDummy.position.set(dome.x,dome.y,dome.z);
+        domeDummy.scale.set(dome.radius,dome.radius*.72,dome.radius);
+        domeDummy.updateMatrix();domeMesh.setMatrixAt(index,domeDummy.matrix);
+      });
+      domeMesh.instanceMatrix.needsUpdate=true;chunk.detail.add(domeMesh);
+    }
     addInstancedBoxes(chunk.geometryGroup,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0x77766f,roughness:.9}),chunk.rooftopUnits);
     group.add(chunk.group);
   }

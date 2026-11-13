@@ -7,7 +7,7 @@ import pandas as pd
 import requests
 import osmnx as ox
 from shapely.ops import unary_union
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -589,6 +589,70 @@ def main():
             print(f"Could not resolve verified pizzeria address {business_name}: {exc}")
 
 
+    # Individually documented architectural references inside the Obelisco play area.
+    # Coordinates are resolved from the street address and matched to the official parcel volume;
+    # no visual identity is assigned when geocoding cannot confidently locate a building.
+    architectural_references = [
+        {
+            "address": "Avenida Corrientes 1205, Buenos Aires, Argentina",
+            "profile": "corrientes-1205-aslan-ezcurra",
+            "name": "Edificio Av. Corrientes 1205",
+            "floors": 13,
+            "facade": "#a9c7d3",
+            "trim": "#e9e7df",
+            "window_frame": "#24292d",
+            "source": "https://www.modernabuenosaires.org/obras/20s-a-70s/edificio-av-corrientes-1205",
+        },
+        {
+            "address": "Avenida Corrientes 1258, Buenos Aires, Argentina",
+            "profile": "corrientes-1252-1264-twin-domes",
+            "name": "Edificio Corrientes 1252-1264",
+            "floors": 7,
+            "facade": "#c9c0b2",
+            "trim": "#e8dfd2",
+            "window_frame": "#3d3935",
+            "source": "https://www.clarin.com/ciudades/edificio-avenida-corrientes-cupulas-gemelas-vacio-hace-20-anos-historias-vivieron_0_o9D6qHXmcw.amp.html",
+        },
+    ]
+    architectural_reference_matches = 0
+    for reference in architectural_references:
+        try:
+            lat, lon = ox.geocode(reference["address"])
+            anchor_point = Point(lon, lat)
+            nearest = None
+            for feature in features:
+                if feature.get("type") != "building" or not feature.get("polygons"):
+                    continue
+                try:
+                    polygon = Polygon(feature["polygons"][0])
+                    distance = polygon.distance(anchor_point)
+                except Exception:
+                    continue
+                if nearest is None or distance < nearest[0]:
+                    nearest = (distance, feature.get("smp"))
+            if nearest is None or nearest[0] > 0.00022 or not nearest[1]:
+                print(f"Architectural reference not confidently matched: {reference['name']} (distance={nearest[0] if nearest else 'none'})", flush=True)
+                continue
+            matched_smp = str(nearest[1])
+            matched = 0
+            for feature in features:
+                if feature.get("type") != "building" or str(feature.get("smp") or "") != matched_smp:
+                    continue
+                feature["architectureProfile"] = reference["profile"]
+                feature["architectureReference"] = reference["source"]
+                feature["architectureName"] = reference["name"]
+                feature["architecturalFloors"] = reference["floors"]
+                feature["facadeHex"] = reference["facade"]
+                feature["facadeHexSecondary"] = reference["trim"]
+                feature["windowFrameHex"] = reference["window_frame"]
+                matched += 1
+            architectural_reference_matches += 1
+            print(f"Applied documented architectural profile: {reference['name']} · parcel {matched_smp} · volumes={matched}", flush=True)
+            time.sleep(1.1)
+        except Exception as exc:
+            print(f"Architectural reference lookup unavailable for {reference['name']}: {exc}", flush=True)
+    counts["architectural_reference_matches"] = architectural_reference_matches
+
     # Parcel-level facade references: use USIG photos only as visual measurements.
     # Original photo pixels are never shipped in the game; only derived color samples
     # and source/date metadata are attached to the matching 3D building.
@@ -914,6 +978,8 @@ def main():
     sources.append({"name":"Buenos Aires Ciudad · Callejero","license":"CC-BY-4.0","attribution":"Buenos Aires Ciudad","url":"https://data.buenosaires.gob.ar/dataset/calles"})
     if facade_photo_count:
         sources.append({"name":"Buenos Aires Ciudad · USIG · Fotografías de fachada","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · USIG","url":"https://servicios.usig.buenosaires.gob.ar/"})
+    if architectural_reference_matches:
+        sources.append({"name":"Moderna Buenos Aires + referencias periodísticas de arquitectura","license":"Metadata and descriptive facts only","attribution":"Moderna Buenos Aires; Clarín · references linked per building"})
     payload = {
         "source":"Buenos Aires Ciudad · Tejido Urbano, Espacios Verdes Públicos, Callejero + OpenStreetMap contributors",
         "sources":sources,

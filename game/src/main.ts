@@ -6,9 +6,9 @@ const root = document.querySelector<HTMLDivElement>('#app');
 if (!root) throw new Error('No #app root');
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#aebfc0');
-scene.fog = new THREE.Fog('#aebfc0', 340, 900);
-const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 2400);
+scene.background = new THREE.Color('#b9c6c9');
+scene.fog = new THREE.Fog('#b9c6c9', 720, 1650);
+const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.1, 2400);
 const renderer = new THREE.WebGLRenderer({ antialias: devicePixelRatio <= 1.5, powerPreference: 'high-performance' });
 const maxPixelRatio = Math.min(devicePixelRatio, 1.25);
 let currentPixelRatio = maxPixelRatio;
@@ -17,12 +17,13 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
+renderer.toneMappingExposure = 1.0;
 root.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xe8f3ff, 0x6f7566, 2));
-const sun = new THREE.DirectionalLight(0xffedcf, 2.2);
-sun.position.set(-35, 65, 25);
+scene.add(new THREE.HemisphereLight(0xe8f3ff, 0x62584b, 1.15));
+scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+const sun = new THREE.DirectionalLight(0xfff0d9, 2.8);
+sun.position.set(-55, 95, 40);
 scene.add(sun);
 
 const world = new THREE.Group();

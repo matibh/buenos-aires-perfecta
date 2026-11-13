@@ -104,18 +104,19 @@ def read_caba_resource(resource_id, bbox, label):
         response = request_with_retries(metadata_url, f"{label} CKAN metadata", timeout=60)
         metadata = response.json()
     except (requests.exceptions.JSONDecodeError, ValueError) as exc:
-        # CKAN occasionally returns a short non-JSON gateway/error page with HTTP 200.
-        # The official Callejero download URL is already published in the dataset
-        # and can be used directly; do not let a metadata outage block the whole map.
-        if label != "Callejero":
+        # CKAN can return a short non-JSON gateway page with HTTP 200.
+        # These two resources also publish stable official direct-download URLs.
+        fallback_url = {"Callejero": STREET_URL, "Espacios Verdes Públicos": GREEN_URL}.get(label)
+        if not fallback_url:
             raise RuntimeError(f"{label}: CKAN metadata was not valid JSON") from exc
-        print("Callejero CKAN metadata unavailable; using the published official download URL.", flush=True)
-        return read_city_layer(STREET_URL, bbox, label)
+        print(f"{label} CKAN metadata unavailable; using its published official download URL.", flush=True)
+        return read_city_layer(fallback_url, bbox, label)
     if not metadata.get("success") or not metadata.get("result", {}).get("url"):
-        if label == "Callejero":
-            print("Callejero CKAN metadata has no download URL; using the published official download URL.", flush=True)
-            return read_city_layer(STREET_URL, bbox, label)
-        raise RuntimeError(f"BA Data CKAN did not return a download URL for {label}")
+        fallback_url = {"Callejero": STREET_URL, "Espacios Verdes Públicos": GREEN_URL}.get(label)
+        if not fallback_url:
+            raise RuntimeError(f"BA Data CKAN did not return a download URL for {label}")
+        print(f"{label} CKAN metadata has no download URL; using its published official download URL.", flush=True)
+        return read_city_layer(fallback_url, bbox, label)
     download_url = metadata["result"]["url"]
     print(f"Resolved official {label} resource: {download_url}")
     return read_city_layer(download_url, bbox, label)

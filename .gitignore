@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+map-generator/data/raw/*
+map-generator/data/processed/*
+map-generator/data/output/*
+!map-generator/data/raw/.gitkeep
+!map-generator/data/processed/.gitkeep
+!map-generator/data/output/.gitkeep

@@ -119,16 +119,15 @@ function toggleFlight() {
 }
 function lockPointer() {
   try {
-    const request = renderer.domElement.requestPointerLock();
-    if (request && typeof request.catch === 'function') {
-      request.catch(() => { hint.textContent = 'Mouse libre · WASD y SPACE siguen funcionando · Click para reintentar'; });
-    }
+    const request = renderer.domElement.requestPointerLock() as unknown as Promise<void> | undefined;
+    request?.catch(() => { hint.textContent = 'Mouse libre · WASD y SPACE siguen funcionando · Click para reintentar'; });
   } catch {
     hint.textContent = 'Mouse libre · WASD y SPACE siguen funcionando · Click para reintentar';
   }
 }
 startButton.addEventListener('click', () => { started = true; startPanel.classList.add('hidden'); lockPointer(); });
 renderer.domElement.addEventListener('click', () => { if (started && document.pointerLockElement !== renderer.domElement) lockPointer(); });
+document.addEventListener('pointerlockerror', () => { hint.textContent = 'No se pudo capturar el mouse · WASD y SPACE siguen funcionando'; });
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === renderer.domElement;
   if (started && !locked) hint.textContent = 'Mouse liberado · WASD para caminar · SPACE para saltar · Click para recuperar la cámara';

@@ -361,7 +361,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   for(const f of data.features) if(f.type==='tree'&&f.point){
     const p=local(f.point[0],f.point[1],data.origin); treePositions.push({x:p.x,y:0,z:p.z});
   }
-  for(const x of [-35,35]) for(let z=-600;z<=600;z+=34) treePositions.push({x,y:0,z});
+  // Only render individually mapped OSM trees. Do not fabricate evenly spaced rows
+  // along the 9 de Julio median: their positions must come from geographic data.
   if(treePositions.length){
     const trunkGeo=new THREE.CylinderGeometry(.16,.23,3.2,7),crownGeo=new THREE.IcosahedronGeometry(1.75,2);
     const trunkMat=new THREE.MeshStandardMaterial({color:0x594333,roughness:1}),crownMat=new THREE.MeshStandardMaterial({color:0x365b3d,roughness:1});

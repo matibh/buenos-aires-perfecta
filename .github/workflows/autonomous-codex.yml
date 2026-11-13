@@ -157,6 +157,8 @@ jobs:
       - name: Reject edits to protected automation and serialize the patch
         id: diff
         run: |
+          if [ -f codex-summary.md ]; then cp codex-summary.md /tmp/codex-summary.md; fi
+          rm -f AUTONOMY_CONTEXT.md codex-summary.md
           git add -N .
           blocked="$(git diff --name-only HEAD | grep -E '^(\.github/workflows/|\.github/codex/|AGENTS\.md$|public/data/obelisco-world\.json$)' || true)"
           if [ -n "$blocked" ]; then
@@ -166,6 +168,7 @@ jobs:
           fi
           git diff --check
           git diff --binary HEAD > codex.patch
+          if [ -f /tmp/codex-summary.md ]; then cp /tmp/codex-summary.md codex-summary.md; fi
           if [ -s codex.patch ]; then
             echo "has_patch=true" >> "$GITHUB_OUTPUT"
           else

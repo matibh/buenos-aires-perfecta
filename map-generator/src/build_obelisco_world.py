@@ -13,7 +13,6 @@ BBOX = {"west": -58.3905, "south": -34.6105, "east": -58.3725, "north": -34.5970
 ORIGIN = {"lon": -58.38162, "lat": -34.60376}
 OFFICIAL_URL = "https://data.buenosaires.gob.ar/es/dataset/tejido-urbano/resource/9d950b8c-d8cd-4dde-9987-9565313974c8/download"
 GREEN_URL = "https://data.buenosaires.gob.ar/dataset/juqdkmgo-96/resource/2a9af960-02a3-44bb-b57e-0a8295f6e0e2/download"
-GREEN_URL = "https://data.buenosaires.gob.ar/dataset/juqdkmgo-96/resource/2a9af960-02a3-44bb-b57e-0a8295f6e0e2/download"
 ox.settings.use_cache = True
 ox.settings.log_console = True
 ox.settings.timeout = 240

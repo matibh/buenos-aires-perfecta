@@ -1,7 +1,7 @@
 # Plan técnico
 
 ## Coordenadas
-Conservar el CRS declarado por cada fuente e inspeccionarlo antes de transformar. Para Palermo se espera trabajar en EPSG:5348 (POSGAR 2007 / Argentina 6), sujeto a validar definición, área de uso y CRS de origen. Después de reproyectar, restar un origen local cercano al centro del área piloto para mantener coordenadas pequeñas en Three.js.
+Conservar el CRS declarado por cada fuente e inspeccionarlo antes de transformar. Para el área del Obelisco, validar el CRS de origen y su área de uso antes de reproyectar. Después de reproyectar, restar un origen local cercano al centro del área piloto para mantener coordenadas pequeñas en Three.js.
 
 ## Pipeline
 1. Validar metadatos, licencia, CRS y cobertura.

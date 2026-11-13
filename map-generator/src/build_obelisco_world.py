@@ -11,6 +11,7 @@ OUT = ROOT / "public" / "data" / "obelisco-world.json"
 BBOX = {"west": -58.3905, "south": -34.6105, "east": -58.3725, "north": -34.5970}
 ORIGIN = {"lon": -58.38162, "lat": -34.60376}
 OFFICIAL_URL = "https://data.buenosaires.gob.ar/es/dataset/tejido-urbano/resource/9d950b8c-d8cd-4dde-9987-9565313974c8/download"
+GREEN_URL = "https://data.buenosaires.gob.ar/dataset/juqdkmgo-96/resource/2a9af960-02a3-44bb-b57e-0a8295f6e0e2/download"
 ox.settings.use_cache = True
 ox.settings.log_console = True
 ox.settings.timeout = 240
@@ -35,9 +36,12 @@ def load_official_layer():
         elif layer.crs.to_epsg() != 4326:
             layer = layer.to_crs("EPSG:4326")
         layer = layer[layer.geometry.notna()].copy()
-        height_fields = [c for c in layer.columns if re.search(r"altura|height|alt_m|metros", str(c), re.I)]
-        floor_fields = [c for c in layer.columns if re.search(r"pisos|niveles|floors|levels", str(c), re.I)]
-        print(f"CABA Tejido Urbano: {len(layer)} geometries; height fields={height_fields}; floor fields={floor_fields}")
+        height_priority = ["alt_2017", "EXTR_2017", "alt_extr", "alt_2013", "alt_ant", "ANT_2017"]
+        height_fields = [c for c in height_priority if c in layer.columns]
+        floor_fields = [c for c in ["piso_2017", "altos", "piso_2013"] if c in layer.columns]
+        if "flagtipo" in layer.columns:
+            layer = layer[layer["flagtipo"].astype(str).str.upper().str.strip() == "E"].copy()
+        print(f"CABA Tejido Urbano: {len(layer)} edified volumes; height fields={height_fields}; floor fields={floor_fields}")
         if not height_fields and not floor_fields:
             print("WARNING: no recognized official height field; OSM fallback will be used.")
             return None, [], []
@@ -170,7 +174,34 @@ def main():
             counts["buildings"] += 1
             counts["osm_buildings_fallback"] += 1
 
-    # OSM remains the source for streets, parks and individually mapped trees.
+    # CABA public green-space polygons provide the authoritative open-space outlines.
+    try:
+        green_layer = gpd.read_file(GREEN_URL, bbox=(west, south, east, north))
+        if green_layer.crs is None:
+            green_layer = green_layer.set_crs("EPSG:4326")
+        elif green_layer.crs.to_epsg() != 4326:
+            green_layer = green_layer.to_crs("EPSG:4326")
+        green_layer = green_layer[green_layer.geometry.notna()].copy()
+        print(f"CABA public green spaces in extract: {len(green_layer)}")
+        for _, row in green_layer.iterrows():
+            geom = row.geometry
+            props = row_tags(row)
+            label = str(props.get("nombre") or props.get("nombre_ev") or props.get("nom_mapa") or "")
+            if geom.geom_type not in ("Polygon", "MultiPolygon"):
+                continue
+            for poly in polygons_of(geom):
+                if poly.area < 0.0000000001:
+                    continue
+                kind = "plaza" if "plaza de la rep" in label.lower() else "green"
+                features.append({"type":kind,"polygons":[ring(poly.exterior.coords)],"name":label[:100],"source":"Buenos Aires Ciudad · Espacios Verdes Públicos"})
+                if kind == "plaza":
+                    counts["official_plaza_polygons"] = counts.get("official_plaza_polygons", 0) + 1
+                else:
+                    counts["official_green_polygons"] = counts.get("official_green_polygons", 0) + 1
+    except Exception as exc:
+        print(f"WARNING: official public green-space layer unavailable ({exc}); OSM green features are fallback only.")
+
+    # OSM remains the source for streets and individually mapped trees.
     for _, row in gdf.iterrows():
         geom = row.geometry
         tags_row = row_tags(row)
@@ -194,7 +225,7 @@ def main():
             polys = polygons_of(geom)
             polygons = [ring(p.exterior.coords) for p in polys if p.area > 0.0000000001]
             if polygons:
-                features.append({"type":"green","polygons":polygons,"name":str(tags_row.get("name") or "")[:100]})
+                features.append({"type":"green","polygons":polygons,"name":str(tags_row.get("name") or "")[:100],"source":"OpenStreetMap"})
                 counts["green"] += 1
         elif tags_row.get("natural") == "tree" and geom.geom_type == "Point":
             features.append({"type":"tree","point":[round(geom.x,7),round(geom.y,7)]})
@@ -202,12 +233,14 @@ def main():
 
     sources = [{"name":"OpenStreetMap contributors","license":"ODbL 1.0","attribution":"© OpenStreetMap contributors"}]
     if counts["official_height_matches"]:
-        sources.append({"name":"Buenos Aires Ciudad · Tejido Urbano","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · datos hasta 2021","url":"https://data.buenosaires.gob.ar/es/dataset/tejido-urbano"})
+        sources.append({"name":"Buenos Aires Ciudad · Tejido Urbano","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · restitución de volúmenes 2013/2017","url":"https://data.buenosaires.gob.ar/es/dataset/tejido-urbano"})
+    if counts.get("official_green_polygons", 0) or counts.get("official_plaza_polygons", 0):
+        sources.append({"name":"Buenos Aires Ciudad · Espacios Verdes Públicos","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad","url":"https://data.buenosaires.gob.ar/dataset/espacios-verdes"})
     payload = {
         "source":"OpenStreetMap contributors + Buenos Aires Ciudad Tejido Urbano",
         "sources":sources,
-        "license":"ODbL 1.0 + CC-BY-2.5-AR" if counts["official_height_matches"] else "ODbL 1.0",
-        "attribution":"© OpenStreetMap contributors" + (" · Buenos Aires Ciudad" if counts["official_height_matches"] else ""),
+        "license":"ODbL 1.0 + CC-BY-2.5-AR" if counts["official_height_matches"] or counts.get("official_green_polygons", 0) else "ODbL 1.0",
+        "attribution":"© OpenStreetMap contributors" + (" · Buenos Aires Ciudad" if counts["official_height_matches"] or counts.get("official_green_polygons", 0) else ""),
         "retrievedAt":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
         "bbox":BBOX,"origin":ORIGIN,"counts":counts,"features":features
     }
@@ -216,6 +249,8 @@ def main():
     if counts["buildings"] < 30 or counts["roads"] < 30:
         raise SystemExit("OSM extract unexpectedly sparse; refusing to publish an incomplete level.")
     if counts["official_height_matches"] == 0:
-        print("WARNING: no official CABA building volumes were matched; this run will use OSM footprints and estimates.")
+        raise SystemExit("No official CABA building heights matched; refusing to publish an OSM-only approximation.")
+    if counts.get("official_plaza_polygons", 0) == 0:
+        raise SystemExit("Official Plaza de la República polygon not found; refusing to publish a guessed plaza footprint.")
 
 if __name__ == "__main__": main()

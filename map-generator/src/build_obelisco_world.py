@@ -163,6 +163,10 @@ def load_official_layer():
         if "flagtipo" in layer.columns:
             layer = layer[layer["flagtipo"].astype(str).str.upper().str.strip() == "E"].copy()
         print(f"CABA Tejido Urbano: {len(layer)} edified volumes; height fields={height_fields}; floor fields={floor_fields}")
+        for field in floor_fields:
+            values = layer[field].dropna().astype(str).str.strip()
+            print(f"Official field diagnostic {field}: non-null={len(values)}; sample values={values.value_counts().head(15).to_dict()}", flush=True)
+        print(f"Official geometry types: {layer.geometry.geom_type.value_counts().to_dict()}", flush=True)
         if not height_fields and not floor_fields:
             print("WARNING: no recognized official height field; OSM fallback will be used.")
             return None, [], []
@@ -323,12 +327,21 @@ def main():
 
     # Primary building geometry comes from the City's mapped 3D urban fabric.
     # Multiple height volumes are preserved rather than flattened into one box.
+    official_excluded_by_corridor = 0
+    official_missing_height = 0
+    official_height_samples = []
     if official_layer is not None:
         for _, row in official_layer.iterrows():
             geom = row.geometry
-            if geom.intersects(no_building_area): continue
+            if geom.intersects(no_building_area):
+                official_excluded_by_corridor += 1
+                continue
             measured = official_height(row, height_fields, floor_fields)
-            if not measured: continue
+            if not measured:
+                official_missing_height += 1
+                if len(official_height_samples) < 12:
+                    official_height_samples.append({field: str(row.get(field)) for field in floor_fields})
+                continue
             height, source = measured
             name = osm_name_for(geom, osm_buildings)
             for poly in polygons_of(geom):
@@ -340,6 +353,8 @@ def main():
                 counts["buildings"] += 1
                 counts["official_building_volumes"] += 1
                 counts["official_height_matches"] += 1
+
+    print(f"Official building diagnostics: excluded_by_plaza_or_9_de_Julio={official_excluded_by_corridor}; missing_usable_height={official_missing_height}; missing_height_samples={official_height_samples}", flush=True)
 
     # OSM supplies names and a fallback for buildings not covered by the 2021 city layer.
     for _, row in osm_buildings.iterrows():

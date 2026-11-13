@@ -7,7 +7,7 @@ if (!root) throw new Error('No #app root');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#aebfc0');
-scene.fog = new THREE.Fog('#aebfc0', 520, 1650);
+scene.fog = new THREE.Fog('#aebfc0', 360, 980);
 const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 2400);
 const renderer = new THREE.WebGLRenderer({ antialias: devicePixelRatio <= 1.5, powerPreference: 'high-performance' });
 const maxPixelRatio = Math.min(devicePixelRatio, 1.25);
@@ -29,6 +29,9 @@ const world = new THREE.Group();
 scene.add(world);
 let colliders: Array<{ minX: number; maxX: number; minZ: number; maxZ: number; height?: number }> = [];
 let worldReady = false;
+type RenderChunk = { group: THREE.Group; detail: THREE.Group; x: number; z: number; visible: boolean; detailVisible: boolean };
+let renderChunks: RenderChunk[] = [];
+let lastChunkUpdate = 0;
 const colliderGrid = new Map<string, typeof colliders>();
 const COLLIDER_CELL_SIZE = 64;
 let worldAttribution = 'Cargando fuentes geográficas…';
@@ -71,6 +74,9 @@ fetch('data/obelisco-world.json')
   })
   .then(data => {
     colliders = createObeliscoWorld(world, data);
+    renderChunks = world.children
+      .filter((child): child is THREE.Group => child instanceof THREE.Group && child.userData.renderChunk === true)
+      .map(group => ({ group, detail: group.userData.detailGroup as THREE.Group, x: group.userData.centerX as number, z: group.userData.centerZ as number, visible: true, detailVisible: true }));
     for (const collider of colliders) {
       const minX=Math.floor(collider.minX/COLLIDER_CELL_SIZE), maxX=Math.floor(collider.maxX/COLLIDER_CELL_SIZE);
       const minZ=Math.floor(collider.minZ/COLLIDER_CELL_SIZE), maxZ=Math.floor(collider.maxZ/COLLIDER_CELL_SIZE);
@@ -107,6 +113,18 @@ function updateCamera() {
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
+}
+function updateChunkVisibility(now: number) {
+  if (now - lastChunkUpdate < 180) return;
+  lastChunkUpdate = now;
+  const px = player.x, pz = player.z;
+  for (const chunk of renderChunks) {
+    const distance = Math.hypot(chunk.x - px, chunk.z - pz);
+    const shouldShow = distance < 920;
+    const shouldShowDetail = distance < 430;
+    if (chunk.visible !== shouldShow) { chunk.group.visible = shouldShow; chunk.visible = shouldShow; }
+    if (chunk.detailVisible !== shouldShowDetail) { chunk.detail.visible = shouldShowDetail; chunk.detailVisible = shouldShowDetail; }
+  }
 }
 function blocked(x: number, z: number, y: number) {
   const gx = Math.floor(x / COLLIDER_CELL_SIZE), gz = Math.floor(z / COLLIDER_CELL_SIZE);
@@ -210,6 +228,7 @@ function tick(now: number) {
     if (!blocked(player.x, nz, player.y)) player.z = nz;
     if (player.y < eyeHeight) { player.y = eyeHeight; velocity.y = 0; grounded = true; }
     updateCamera();
+    updateChunkVisibility(now);
   }
   renderer.render(scene, camera);
 }

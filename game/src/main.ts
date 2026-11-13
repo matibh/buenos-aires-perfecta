@@ -10,11 +10,12 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color('#aebfc0');
 scene.fog = new THREE.Fog('#aebfc0', 420, 1450);
 const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 2200);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
+const renderer = new THREE.WebGLRenderer({ antialias: devicePixelRatio <= 1.5, powerPreference: 'high-performance' });
+const maxPixelRatio = Math.min(devicePixelRatio, 1.5);
+let currentPixelRatio = maxPixelRatio;
+renderer.setPixelRatio(currentPixelRatio);
 renderer.setSize(innerWidth, innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.enabled = false;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
@@ -22,7 +23,7 @@ root.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xe8f3ff, 0x6f7566, 2));
 const sun = new THREE.DirectionalLight(0xffedcf, 2.2);
-sun.position.set(-35, 65, 25); sun.castShadow = true;
+sun.position.set(-35, 65, 25); sun.castShadow = false;
 sun.shadow.mapSize.set(2048, 2048); scene.add(sun);
 const palermoGroup = new THREE.Group(); scene.add(palermoGroup);
 const obeliscoGroup = new THREE.Group(); obeliscoGroup.visible = false; scene.add(obeliscoGroup);
@@ -129,7 +130,7 @@ function lockPointer() {
     hint.textContent = 'Mouse libre · WASD y SPACE siguen funcionando · Click para reintentar';
   }
 }
-startButton.addEventListener('click', () => { started = true; startPanel.classList.add('hidden'); lockPointer(); });
+startButton.addEventListener('click', () => { started = true; startPanel.classList.add('hidden'); renderer.setAnimationLoop(tick); lockPointer(); });
 renderer.domElement.addEventListener('click', () => { if (started && document.pointerLockElement !== renderer.domElement) lockPointer(); });
 document.addEventListener('pointerlockerror', () => { hint.textContent = 'No se pudo capturar el mouse · WASD y SPACE siguen funcionando'; });
 document.addEventListener('pointerlockchange', () => {
@@ -154,8 +155,24 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => keys.delete(e.code));
 window.addEventListener('blur', () => keys.clear());
 
+let qualityWindowStart = performance.now();
+let qualityFrameCount = 0;
 function tick(now: number) {
-  const dt = Math.min((now - lastTime) / 1000, .04); lastTime = now;
+  const frameMs = now - lastTime;
+  const dt = Math.min(frameMs / 1000, .04); lastTime = now;
+  qualityFrameCount++;
+  if (now - qualityWindowStart >= 2000) {
+    const averageFrameMs = (now - qualityWindowStart) / qualityFrameCount;
+    const nextRatio = averageFrameMs > 22 ? Math.max(1, currentPixelRatio - .15)
+      : averageFrameMs < 16 ? Math.min(maxPixelRatio, currentPixelRatio + .1) : currentPixelRatio;
+    if (Math.abs(nextRatio - currentPixelRatio) >= .09) {
+      currentPixelRatio = nextRatio;
+      renderer.setPixelRatio(currentPixelRatio);
+      renderer.setSize(innerWidth, innerHeight, false);
+    }
+    qualityWindowStart = now;
+    qualityFrameCount = 0;
+  }
   if (started) {
     forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
     right.set(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -187,9 +204,10 @@ function tick(now: number) {
   renderer.render(scene, camera);
 }
 updateCamera();
-renderer.setAnimationLoop(tick);
+renderer.render(scene, camera);
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  if (!started) renderer.render(scene, camera);
 });

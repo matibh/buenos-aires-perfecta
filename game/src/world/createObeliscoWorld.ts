@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 type GeoFeature = {
-  type: 'building' | 'road' | 'green' | 'plaza' | 'tree';
+  type: 'building' | 'road' | 'green' | 'plaza' | 'tree' | 'business';
   polygons?: number[][][];
   line?: number[][];
   point?: number[];
@@ -11,6 +11,14 @@ type GeoFeature = {
   width?: number;
   highway?: string;
   name?: string;
+  category?: string;
+  kind?: string;
+  brand?: string;
+  operator?: string;
+  cuisine?: string;
+  openingHours?: string;
+  address?: string;
+  website?: string;
 };
 export type ObeliscoWorldData = { origin: { lon: number; lat: number }; features: GeoFeature[]; counts: Record<string, number> };
 export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: number; height: number };

@@ -109,6 +109,8 @@ def main():
         "leisure": ["park", "garden", "playground"],
         "landuse": ["grass", "forest", "recreation_ground"],
         "natural": ["tree", "wood"],
+        "shop": True, "amenity": True, "office": True, "tourism": True,
+        "craft": True, "healthcare": True,
     }
     west, south, east, north = (BBOX[k] for k in ("west", "south", "east", "north"))
     gdf = ox.features_from_bbox((west, south, east, north), tags=tags)
@@ -116,7 +118,7 @@ def main():
 
     def row_tags(row):
         result = {}
-        for key in ("building","height","building:levels","levels","name","nombre","nombre_ev","nom_mapa","nomoficial","highway","leisure","landuse","natural","width","surface","amenity","shop","flagtipo"):
+        for key in ("building","height","building:levels","levels","name","nombre","nombre_ev","nom_mapa","nomoficial","highway","leisure","landuse","natural","width","surface","amenity","shop","office","tourism","craft","healthcare","brand","operator","cuisine","opening_hours","website","phone","addr:street","addr:housenumber","flagtipo"):
             value = row.get(key)
             if valid_value(value): result[key] = value
         return result
@@ -159,7 +161,7 @@ def main():
     features = []
     counts = {
         "buildings": 0, "official_building_volumes": 0, "osm_buildings_fallback": 0,
-        "official_height_matches": 0, "roads": 0, "green": 0, "trees": 0
+        "official_height_matches": 0, "roads": 0, "green": 0, "trees": 0, "businesses": 0, "named_businesses": 0
     }
 
     # Primary building geometry comes from the City's mapped 3D urban fabric.
@@ -223,6 +225,29 @@ def main():
     for _, row in gdf.iterrows():
         geom = row.geometry
         tags_row = row_tags(row)
+        business_category = next((key for key in ("shop", "amenity", "office", "tourism", "craft", "healthcare") if tags_row.get(key)), None)
+        business_kind = str(tags_row.get(business_category) or "") if business_category else ""
+        commercial_amenities = {"restaurant", "fast_food", "cafe", "bar", "pub", "food_court", "ice_cream", "pharmacy", "bank", "atm", "fuel", "cinema", "theatre", "marketplace", "clinic", "dentist", "veterinary"}
+        is_place = business_category in ("shop", "office", "tourism", "craft", "healthcare") or (business_category == "amenity" and business_kind in commercial_amenities)
+        if is_place and geom.geom_type in ("Point", "Polygon", "MultiPolygon", "LineString", "MultiLineString"):
+            location = geom if geom.geom_type == "Point" else geom.representative_point()
+            business_name = str(tags_row.get("name") or tags_row.get("brand") or "")
+            features.append({
+                "type": "business",
+                "point": [round(float(location.x), 7), round(float(location.y), 7)],
+                "name": business_name[:120],
+                "category": business_category,
+                "kind": str(tags_row.get(business_category) or "")[:80],
+                "brand": str(tags_row.get("brand") or "")[:100],
+                "operator": str(tags_row.get("operator") or "")[:100],
+                "cuisine": str(tags_row.get("cuisine") or "")[:100],
+                "openingHours": str(tags_row.get("opening_hours") or "")[:160],
+                "address": " ".join(x for x in (str(tags_row.get("addr:street") or ""), str(tags_row.get("addr:housenumber") or "")) if x)[:120],
+                "website": str(tags_row.get("website") or "")[:180],
+                "source": "OpenStreetMap"
+            })
+            counts["businesses"] += 1
+            if business_name: counts["named_businesses"] += 1
         if tags_row.get("highway") and geom.geom_type in ("LineString", "MultiLineString"):
             lines = [geom] if geom.geom_type == "LineString" else list(geom.geoms)
             for line in lines:

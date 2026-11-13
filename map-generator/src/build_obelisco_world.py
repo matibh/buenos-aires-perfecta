@@ -166,6 +166,12 @@ def load_official_layer():
         for field in floor_fields:
             values = layer[field].dropna().astype(str).str.strip()
             print(f"Official field diagnostic {field}: non-null={len(values)}; sample values={values.value_counts().head(15).to_dict()}", flush=True)
+        print(f"Official schema fields: {[str(c) for c in layer.columns if c != 'geometry']}", flush=True)
+        for field in [c for c in layer.columns if c != "geometry"]:
+            values = layer[field].dropna()
+            if len(values):
+                sample_counts = values.astype(str).str.strip().value_counts().head(10).to_dict()
+                print(f"Official attribute diagnostic {field}: non-null={len(values)}; sample values={sample_counts}", flush=True)
         print(f"Official geometry types: {layer.geometry.geom_type.value_counts().to_dict()}", flush=True)
         if not height_fields and not floor_fields:
             print("WARNING: no recognized official height field; OSM fallback will be used.")
@@ -482,7 +488,7 @@ def main():
                 if feature.get("type") != "business" or not feature.get("point"):
                     continue
                 existing_name = normalized_name(feature.get("name", ""))
-                if normalized_name(business_name) in existing_name or existing_name in normalized_name(business_name):
+                if existing_name and (normalized_name(business_name) in existing_name or existing_name in normalized_name(business_name)):
                     duplicate = True
                     break
                 px, py = feature["point"]

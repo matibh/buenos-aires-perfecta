@@ -219,7 +219,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   addInstancedBoxes(group,new THREE.BoxGeometry(1,1,1),whitePaint,crosswalks);
 
   // A square tapered shaft with a distinct pyramidal crown, not a cone/pyramid from ground to tip.
-  const plaza=new THREE.Mesh(new THREE.CircleGeometry(19,64),new THREE.MeshStandardMaterial({color:0x858b82,roughness:1}));
+  const plaza=new THREE.Mesh(new THREE.CircleGeometry(8,64),new THREE.MeshStandardMaterial({color:0x858b82,roughness:1}));
   plaza.rotation.x=-Math.PI/2; plaza.position.y=.17; group.add(plaza);
   const shaft=new THREE.Mesh(new THREE.CylinderGeometry(3.65,4.81,59.5,4,1,false),WHITE);
   shaft.rotation.y=Math.PI/4; shaft.position.set(0,29.75,0); shaft.castShadow=true; shaft.receiveShadow=true; group.add(shaft);

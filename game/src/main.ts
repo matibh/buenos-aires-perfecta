@@ -29,6 +29,7 @@ const obeliscoGroup = new THREE.Group(); obeliscoGroup.visible = false; scene.ad
 let colliders: Array<{ minX: number; maxX: number; minZ: number; maxZ: number; height?: number }> = createPrototypeWorld(palermoGroup);
 let obeliscoColliders: Array<{ minX: number; maxX: number; minZ: number; maxZ: number; height?: number }> = [];
 let obeliscoReady = false;
+let obeliscoAttribution = '© OpenStreetMap contributors · ODbL 1.0 · alturas estimadas';
 
 const hud = document.createElement('div');
 hud.className = 'hud';
@@ -64,6 +65,9 @@ const levelKicker = startPanel.querySelector<HTMLParagraphElement>('p')!;
 const mapAttribution = hud.querySelector<HTMLDivElement>('#map-attribution')!;
 fetch('data/obelisco-world.json').then(r => { if (!r.ok) throw new Error('OSM data not ready'); return r.json() as Promise<ObeliscoWorldData>; }).then(data => {
   obeliscoColliders = createObeliscoWorld(obeliscoGroup, data);
+  obeliscoAttribution = (data.counts?.official_height_matches ?? 0) > 0
+    ? '© OpenStreetMap contributors · Buenos Aires Ciudad (CC BY 2.5 AR) · alturas oficiales hasta 2021 + estimaciones'
+    : '© OpenStreetMap contributors · ODbL 1.0 · alturas estimadas';
   obeliscoReady = true;
   obeliscoButton.disabled = false;
   obeliscoButton.textContent = 'OBELISCO';
@@ -88,7 +92,7 @@ function switchLevel(level: 'palermo' | 'obelisco') {
   levelKicker.textContent = level === 'palermo' ? 'PALERMO SOHO · BUILD 01' : 'OBELISCO · CENTRO PORTEÑO';
   palermoButton.classList.toggle('active', level === 'palermo');
   obeliscoButton.classList.toggle('active', level === 'obelisco');
-  mapAttribution.textContent = level === 'obelisco' ? '© OpenStreetMap contributors (ODbL 1.0) · Buenos Aires Ciudad (CC BY 2.5 AR) · alturas oficiales y estimadas' : '';
+  mapAttribution.textContent = level === 'obelisco' ? obeliscoAttribution : '';
   hint.textContent = level === 'obelisco' ? 'WASD caminar · SPACE saltar · doble SPACE volar · Click captura cámara' : 'WASD caminar · SPACE saltar · doble SPACE volar · Click captura cámara';
   updateCamera();
 }

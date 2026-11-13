@@ -124,6 +124,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const windowItems:Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>=[];
   const frameItems:Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>=[];
   const colonColumns:Array<{x:number;y:number;z:number}>=[];
+  let colonLandmarkBuilt=false,granRexSignBuilt=false;
 
   for(const f of data.features){
     if(f.type==='road' && f.line && f.line.length>1) roads.push(roadGeometry(f.line,f.width??9,data.origin));
@@ -146,7 +147,9 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       colliders.push({minX,maxX,minZ,maxZ,height});
 
       const landmark=(f.name||'').toLowerCase();
-      if(landmark.includes('teatro col')) {
+      const mappedArea=footprintArea(ring,data.origin);
+      if(landmark.includes('teatro col') && !colonLandmarkBuilt && mappedArea>1000) {
+        colonLandmarkBuilt=true;
         // The Colón keeps its mapped footprint, with a recognizable historic roof and street colonnade.
         const cx=(minX+maxX)/2,cz=(minZ+maxZ)/2;
         const roofBase=new THREE.Mesh(new THREE.CylinderGeometry(9,12,2.2,24),new THREE.MeshStandardMaterial({color:0xb8aa92,roughness:.9}));
@@ -163,7 +166,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
           }
         }
       }
-      if(landmark.includes('gran rex')) {
+      if(landmark.includes('gran rex') && !granRexSignBuilt && mappedArea>500) {
+        granRexSignBuilt=true;
         // A legible marquee marks the real Gran Rex frontage facing Corrientes.
         const canvas=document.createElement('canvas'); canvas.width=512; canvas.height=96;
         const ctx=canvas.getContext('2d');

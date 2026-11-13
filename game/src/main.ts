@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import './style.css';
 import { createPrototypeWorld } from './world/createPrototypeWorld';
+import { createObeliscoWorld, type ObeliscoWorldData } from './world/createObeliscoWorld';
 
 const root = document.querySelector<HTMLDivElement>('#app');
 if (!root) throw new Error('No #app root');
@@ -23,14 +24,18 @@ scene.add(new THREE.HemisphereLight(0xe8f3ff, 0x6f7566, 2));
 const sun = new THREE.DirectionalLight(0xffedcf, 2.2);
 sun.position.set(-35, 65, 25); sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048); scene.add(sun);
-const colliders = createPrototypeWorld(scene);
+const palermoGroup = new THREE.Group(); scene.add(palermoGroup);
+const obeliscoGroup = new THREE.Group(); obeliscoGroup.visible = false; scene.add(obeliscoGroup);
+let colliders: Array<{ minX: number; maxX: number; minZ: number; maxZ: number; height?: number }> = createPrototypeWorld(palermoGroup);
+let obeliscoColliders: Array<{ minX: number; maxX: number; minZ: number; maxZ: number; height?: number }> = [];
+let obeliscoReady = false;
 
 const hud = document.createElement('div');
 hud.className = 'hud';
 hud.innerHTML = `
   <header class="topbar">
     <div class="brand"><span class="brand-mark">BA</span><div><strong>BUENOS AIRES</strong><small>PERFECTA <i>/</i> PLAYTEST 01</small></div></div>
-    <div class="location"><span class="live-dot"></span> PALERMO · BUENOS AIRES</div>
+    <div class="top-actions"><div class="location" id="location-label"><span class="live-dot"></span> PALERMO · BUENOS AIRES</div><div class="level-switch"><button class="level-button active" id="level-palermo">PALERMO</button><button class="level-button" id="level-obelisco" disabled>OBELISCO · CARGANDO</button></div></div>
   </header>
   <div class="center-message" id="start-panel">
     <p>PALERMO SOHO · BUILD 01</p><h1>La ciudad<br><em>es tuya.</em></h1>
@@ -51,6 +56,15 @@ const startPanel = hud.querySelector<HTMLDivElement>('#start-panel')!;
 const startButton = hud.querySelector<HTMLButtonElement>('#start-button')!;
 const modeLabel = hud.querySelector<HTMLDivElement>('#mode')!;
 const hint = hud.querySelector<HTMLDivElement>('#hint')!;
+const locationLabel = hud.querySelector<HTMLDivElement>('#location-label')!;
+const palermoButton = hud.querySelector<HTMLButtonElement>('#level-palermo')!;
+const obeliscoButton = hud.querySelector<HTMLButtonElement>('#level-obelisco')!;
+fetch(import.meta.env.BASE_URL + 'data/obelisco-world.json').then(r => { if (!r.ok) throw new Error('OSM data not ready'); return r.json() as Promise<ObeliscoWorldData>; }).then(data => {
+  obeliscoColliders = createObeliscoWorld(obeliscoGroup, data);
+  obeliscoReady = true;
+  obeliscoButton.disabled = false;
+  obeliscoButton.textContent = 'OBELISCO';
+}).catch(() => { obeliscoButton.textContent = 'OBELISCO · EN PREPARACIÓN'; });
 
 const player = new THREE.Vector3(0, 1.72, 29);
 const velocity = new THREE.Vector3();
@@ -58,6 +72,23 @@ const keys = new Set<string>();
 let yaw = 0, pitch = 0, grounded = true, flying = false, started = false;
 let lastSpace = 0, lastTime = performance.now();
 const radius = .38, eyeHeight = 1.72;
+let activeLevel: 'palermo' | 'obelisco' = 'palermo';
+const createPrototypeWorldColliders = colliders;
+function switchLevel(level: 'palermo' | 'obelisco') {
+  if (level === 'obelisco' && !obeliscoReady) return;
+  activeLevel = level;
+  palermoGroup.visible = level === 'palermo';
+  obeliscoGroup.visible = level === 'obelisco';
+  colliders = level === 'palermo' ? createPrototypeWorldColliders : obeliscoColliders;
+  player.set(0, eyeHeight, level === 'palermo' ? 29 : 48);
+  velocity.set(0, 0, 0); grounded = true; flying = false; yaw = 0; pitch = 0;
+  modeLabel.textContent = 'A PIE'; modeLabel.classList.remove('flying');
+  locationLabel.innerHTML = '<span class="live-dot"></span> ' + (level === 'palermo' ? 'PALERMO SOHO' : 'OBELISCO · SAN NICOLÁS') + ' · BUENOS AIRES';
+  palermoButton.classList.toggle('active', level === 'palermo');
+  obeliscoButton.classList.toggle('active', level === 'obelisco');
+  hint.textContent = level === 'obelisco' ? 'Explorá el Obelisco y las cuadras del centro · ESC para liberar' : 'Explorá Palermo Soho · ESC para liberar';
+  updateCamera();
+}
 const forward = new THREE.Vector3(), right = new THREE.Vector3(), move = new THREE.Vector3();
 
 function updateCamera() {
@@ -68,11 +99,14 @@ function updateCamera() {
 }
 function blocked(x: number, z: number, y: number) {
   for (const b of colliders) {
-    if (y - eyeHeight > b.height + .2) continue;
+    if (y - eyeHeight > (b.height ?? 999) + .2) continue;
     if (x + radius > b.minX && x - radius < b.maxX && z + radius > b.minZ && z - radius < b.maxZ) return true;
   }
   return false;
 }
+palermoButton.addEventListener('click', () => switchLevel('palermo'));
+obeliscoButton.addEventListener('click', () => switchLevel('obelisco'));
+
 function toggleFlight() {
   flying = !flying;
   velocity.y = 0;

@@ -1,6 +1,6 @@
 """Build an attributed 3D city dataset around the Buenos Aires Obelisk."""
 from __future__ import annotations
-import io, json, re, time
+import io, json, re, time, tempfile, zipfile
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
@@ -54,8 +54,20 @@ def read_city_layer(url, bbox, label):
             raise RuntimeError(f"{label}: JSON response is not a GeoJSON FeatureCollection")
         west, south, east, north = bbox
         return layer.cx[west:east, south:north].copy()
-    if content[:4] == b"PK\x03\x04" or "zip" in content_type:
-        return gpd.read_file(io.BytesIO(content), bbox=bbox)
+    if content[:4] == b"PK\\x03\\x04" or "zip" in content_type:
+        # Pyogrio/GDAL cannot reliably open a ZIP passed as an in-memory BytesIO.
+        # Persist the downloaded archive once and address its SHP via /vsizip.
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            shp_members = [name for name in archive.namelist() if name.lower().endswith(".shp")]
+        if not shp_members:
+            raise RuntimeError(f"{label}: ZIP archive contains no shapefile")
+        shp_member = sorted(shp_members, key=lambda name: (name.count("/"), len(name)))[0]
+        with tempfile.NamedTemporaryFile(suffix=".zip") as temp_zip:
+            temp_zip.write(content)
+            temp_zip.flush()
+            virtual_path = f"/vsizip/{temp_zip.name}/{shp_member}"
+            print(f"{label}: reading {shp_member} from downloaded ZIP", flush=True)
+            return gpd.read_file(virtual_path, bbox=bbox)
     preview = content[:240].decode("utf-8", errors="replace").replace("\\n", " ")
     raise RuntimeError(f"{label}: unsupported response format ({content_type}); body starts: {preview}")
 
@@ -92,12 +104,17 @@ def read_tejido_urbano(bbox):
         errors.append(f"CKAN package discovery: {exc}")
     # Keep the known official GeoJSON as a secondary source, not the first attempt.
     candidates.append(("https://data.buenosaires.gob.ar/api/3/action/resource_show?id=9d950b8c-d8cd-4dde-9987-9565313974c8", "Tejido Urbano official GeoJSON"))
+    seen_download_urls = set()
     for url, name in candidates:
         try:
             if url.endswith("9d950b8c-d8cd-4dde-9987-9565313974c8") or "resource_show?id=" in url:
                 meta = request_with_retries(url, "Tejido Urbano resource metadata", timeout=60).json()
                 url = meta.get("result", {}).get("url")
                 if not url: raise RuntimeError("CKAN resource metadata has no download URL")
+            if url in seen_download_urls:
+                print(f"Skipping duplicate Tejido Urbano download URL: {name}", flush=True)
+                continue
+            seen_download_urls.add(url)
             print(f"Trying official Tejido Urbano format: {name} ({url})")
             layer = read_city_layer(url, bbox, f"Tejido Urbano {name}")
             if layer.empty: raise RuntimeError("official layer returned no features in the requested bbox")

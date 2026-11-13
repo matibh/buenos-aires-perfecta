@@ -1,6 +1,6 @@
 """Build an attributed 3D city dataset around the Buenos Aires Obelisk."""
 from __future__ import annotations
-import io, json, re, time, tempfile, zipfile
+import io, json, re, time, tempfile, zipfile, hashlib
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
@@ -10,12 +10,15 @@ from shapely.ops import unary_union
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "public" / "data" / "obelisco-world.json"
+CACHE_DIR = ROOT / "map-generator" / ".cache"
 BBOX = {"west": -58.3905, "south": -34.6105, "east": -58.3725, "north": -34.5970}
 ORIGIN = {"lon": -58.38162, "lat": -34.60376}
 OFFICIAL_URL = "https://data.buenosaires.gob.ar/es/dataset/tejido-urbano/resource/9d950b8c-d8cd-4dde-9987-9565313974c8/download"
 GREEN_URL = "https://data.buenosaires.gob.ar/dataset/juqdkmgo-96/resource/2a9af960-02a3-44bb-b57e-0a8295f6e0e2/download"
 STREET_URL = "https://data.buenosaires.gob.ar/dataset/juqdkmgo-30/resource/2941f731-0a2e-4391-b8c9-a2912a80c081/download"
 ox.settings.use_cache = True
+ox.settings.cache_folder = str(CACHE_DIR / "osmnx")
+(CACHE_DIR / "osmnx").mkdir(parents=True, exist_ok=True)
 ox.settings.log_console = True
 ox.settings.timeout = 45
 ox.settings.requests_timeout = 45
@@ -41,24 +44,32 @@ def request_with_retries(url, label, timeout=180, stream=False):
     return response
 
 def read_city_layer(url, bbox, label):
-    """Download and decode CABA open-data resources explicitly (GeoJSON or zipped GIS)."""
-    response = request_with_retries(url, label, stream=True)
-    chunks = []
-    downloaded = 0
-    last_report = 0
-    for chunk in response.iter_content(chunk_size=1024 * 1024):
-        if not chunk:
-            continue
-        chunks.append(chunk)
-        downloaded += len(chunk)
-        if downloaded - last_report >= 8 * 1024 * 1024:
-            print(f"{label}: downloaded {downloaded / (1024 * 1024):.0f} MiB", flush=True)
-            last_report = downloaded
-    content = b"".join(chunks)
-    print(f"{label}: download complete ({downloaded / (1024 * 1024):.1f} MiB)", flush=True)
-    content_type = response.headers.get("Content-Type", "").lower()
-    if not content:
-        raise RuntimeError(f"{label}: empty download")
+    """Load a cached CABA open-data resource, downloading it only on cache miss."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = CACHE_DIR / f"source-{hashlib.sha256(url.encode('utf-8')).hexdigest()}.bin"
+    content_type = ""
+    if cache_path.exists() and cache_path.stat().st_size:
+        content = cache_path.read_bytes()
+        print(f"{label}: using cached source ({len(content) / (1024 * 1024):.1f} MiB)", flush=True)
+    else:
+        response = request_with_retries(url, label, stream=True)
+        downloaded = 0
+        last_report = 0
+        with cache_path.open("wb") as cached:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                cached.write(chunk)
+                downloaded += len(chunk)
+                if downloaded - last_report >= 8 * 1024 * 1024:
+                    print(f"{label}: downloaded {downloaded / (1024 * 1024):.0f} MiB", flush=True)
+                    last_report = downloaded
+        content_type = response.headers.get("Content-Type", "").lower()
+        if downloaded == 0:
+            cache_path.unlink(missing_ok=True)
+            raise RuntimeError(f"{label}: empty download")
+        content = cache_path.read_bytes()
+        print(f"{label}: download complete ({downloaded / (1024 * 1024):.1f} MiB); cached for future runs", flush=True)
     if content.lstrip().startswith((b"{", b"[")):
         data = json.loads(content.decode("utf-8-sig"))
         if data.get("type") == "FeatureCollection":

@@ -399,6 +399,64 @@ def main():
             features.append({"type":"tree","point":[round(geom.x,7),round(geom.y,7)]})
             counts["trees"] += 1
 
+    # Curated, independently verified pizzerias in the immediate Obelisco/Corrientes area.
+    # Nominatim resolves their street addresses against OSM; no guessed coordinates are inserted.
+    known_pizzerias = [
+        ("Pizzería Güerrín", "Avenida Corrientes 1368"),
+        ("Banchero", "Avenida Corrientes 1300"),
+        ("Sbarro", "Avenida Corrientes 1267"),
+        ("Los Inmortales", "Avenida Corrientes 1369"),
+        ("Kentucky", "Avenida Corrientes 956"),
+        ("El Palacio de la Pizza", "Avenida Corrientes 751"),
+        ("Ugi's", "Carlos Pellegrini 321"),
+        ("Pizzería Génova", "Avenida Corrientes 872"),
+        ("Pizza Roma", "Lavalle 888"),
+        ("Las Cuartetas", "Avenida Corrientes 838"),
+        ("El Cuartito", "Talcahuano 937"),
+    ]
+    import math, unicodedata
+    def normalized_name(value):
+        return "".join(ch for ch in unicodedata.normalize("NFKD", str(value).lower()) if not unicodedata.combining(ch))
+    for business_name, street_address in known_pizzerias:
+        try:
+            lat, lon = ox.geocode(f"{street_address}, Buenos Aires, Argentina")
+            if not (west <= lon <= east and south <= lat <= north):
+                print(f"Verified pizzeria outside Obelisco map bounds; skipped: {business_name} ({street_address})")
+                continue
+            duplicate = False
+            for feature in features:
+                if feature.get("type") != "business" or not feature.get("point"):
+                    continue
+                existing_name = normalized_name(feature.get("name", ""))
+                if normalized_name(business_name) in existing_name or existing_name in normalized_name(business_name):
+                    duplicate = True
+                    break
+                px, py = feature["point"]
+                distance = math.hypot((lon-px)*111320*math.cos(math.radians(lat)), (lat-py)*111320)
+                if feature.get("isPizzeria") and distance < 24:
+                    duplicate = True
+                    break
+            if duplicate:
+                continue
+            features.append({
+                "type": "business",
+                "point": [round(float(lon), 7), round(float(lat), 7)],
+                "name": business_name,
+                "isPizzeria": True,
+                "category": "amenity",
+                "kind": "restaurant",
+                "brand": business_name,
+                "address": f"{street_address}, Buenos Aires",
+                "source": "OpenStreetMap geocoding · venue/address cross-checked"
+            })
+            counts["businesses"] += 1
+            counts["named_businesses"] += 1
+            counts["pizzerias"] += 1
+            print(f"Added verified pizzeria address: {business_name} · {street_address}")
+            time.sleep(1.1)
+        except Exception as exc:
+            print(f"Could not resolve verified pizzeria address {business_name}: {exc}")
+
     sources = [{"name":"OpenStreetMap contributors","license":"ODbL 1.0","attribution":"© OpenStreetMap contributors"}]
     if counts["official_height_matches"]:
         sources.append({"name":"Buenos Aires Ciudad · Tejido Urbano","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · restitución de volúmenes 2013/2017","url":"https://data.buenosaires.gob.ar/es/dataset/tejido-urbano"})

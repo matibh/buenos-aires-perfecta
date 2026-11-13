@@ -8,6 +8,7 @@ import requests
 import osmnx as ox
 from shapely.ops import unary_union
 from shapely.geometry import Point
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "public" / "data" / "obelisco-world.json"
@@ -420,6 +421,7 @@ def main():
                 features.append({
                     "type":"building","polygons":[ring(poly.exterior.coords)],
                     "height":height,"heightSource":source,"name":name[:100],
+                    "smp":str(row.get("smp") or "").strip()[:48],
                     **building_appearance(geom, osm_buildings)
                 })
                 counts["buildings"] += 1
@@ -585,113 +587,270 @@ def main():
             print(f"Could not resolve verified pizzeria address {business_name}: {exc}")
 
 
-    # Official USIG facade photos, matched through cadastral frontage SMP identifiers.
+    # Parcel-level facade references: use USIG photos only as visual measurements.
+    # Original photo pixels are never shipped in the game; only derived color samples
+    # and source/date metadata are attached to the matching 3D building.
     facade_photo_count = 0
-    facade_photo_dir = ROOT / "public" / "data" / "facade-photos"
+    facade_color_matches = 0
+    facade_current_2026 = 0
+    facade_historical = 0
     facade_cache_dir = CACHE_DIR / "facade-photos"
-    facade_photo_dir.mkdir(parents=True, exist_ok=True)
     facade_cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def normalize_smp(value):
+        return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+    def longest_frontage_line(geom):
+        if geom is None or geom.is_empty:
+            return None
+        if geom.geom_type == "LineString":
+            return geom
+        if geom.geom_type == "MultiLineString":
+            lines = list(geom.geoms)
+            return max(lines, key=lambda line: line.length) if lines else None
+        if geom.geom_type == "Polygon":
+            return geom.exterior
+        if geom.geom_type == "MultiPolygon":
+            polygons = list(geom.geoms)
+            return max((poly.exterior for poly in polygons), key=lambda line: line.length) if polygons else None
+        if geom.geom_type == "GeometryCollection":
+            lines = []
+            for part in geom.geoms:
+                line = longest_frontage_line(part)
+                if line is not None:
+                    lines.append(line)
+            return max(lines, key=lambda line: line.length) if lines else None
+        return None
+
+    def sample_facade_colors(image_bytes):
+        """Extract stable facade-dominant colors from a centered, sky/road-trimmed crop."""
+        with Image.open(io.BytesIO(image_bytes)) as source_image:
+            image = source_image.convert("RGB")
+            width, height = image.size
+            if width < 32 or height < 32:
+                raise ValueError("USIG facade image is too small for color sampling")
+            crop = image.crop((int(width * .12), int(height * .08), int(width * .88), int(height * .78)))
+            crop.thumbnail((240, 320))
+            quantized = crop.quantize(colors=8, method=Image.Quantize.MEDIANCUT)
+            palette = quantized.getpalette()
+            ranked = sorted(quantized.getcolors(maxcolors=240 * 320) or [], reverse=True)
+            colors = []
+            for _, palette_index in ranked:
+                offset = palette_index * 3
+                rgb = tuple(palette[offset:offset + 3])
+                if len(rgb) != 3:
+                    continue
+                # Avoid pure black/white image borders and blown-out sky pixels.
+                if max(rgb) - min(rgb) < 5 and (max(rgb) < 22 or min(rgb) > 247):
+                    continue
+                hex_color = "#" + "".join(f"{channel:02x}" for channel in rgb)
+                if hex_color not in colors:
+                    colors.append(hex_color)
+                if len(colors) == 2:
+                    break
+            if not colors:
+                raise ValueError("No usable facade colors found in USIG image")
+            return colors[0], colors[1] if len(colors) > 1 else colors[0]
+
     try:
-        # Official BA Data resource URL verified from the current Parcelas
-        # dataset metadata (resource ID juqdkmgo-1564-resource). Avoid a
-        # package_show slug lookup: the CKAN package identifier is juqdkmgo-156,
-        # not "parcelas", and the old API route can return an HTML error page.
         frontage_url = (
             "https://cdn.buenosaires.gob.ar/datosabiertos/datasets/"
             "secretaria-de-desarrollo-urbano/parcelas/frentes-parcelas.zip"
         )
-        print(
-            "Resolved official frontage source: Frentes de parcelas (SHP) "
-            "(BA Data, resource juqdkmgo-1564-resource; CC-BY-2.5-AR)",
-            flush=True
-        )
+        print("Resolved official frontage source: Frentes de parcelas (SHP) · BA Data · CC-BY-2.5-AR", flush=True)
         frontage_cache = CACHE_DIR / "official-frontages.zip"
         if not frontage_cache.exists() or frontage_cache.stat().st_size < 1000:
             response = request_with_retries(frontage_url, "Official cadastral frontages", timeout=180, stream=True)
             with frontage_cache.open("wb") as stream:
                 for chunk in response.iter_content(1024 * 1024):
-                    if chunk: stream.write(chunk)
+                    if chunk:
+                        stream.write(chunk)
         with zipfile.ZipFile(frontage_cache) as archive:
             shp_members = [name for name in archive.namelist() if name.lower().endswith(".shp")]
-        if not shp_members: raise RuntimeError("Official frontage archive contains no SHP")
+        if not shp_members:
+            raise RuntimeError("Official frontage archive contains no SHP")
         frontage_member = sorted(shp_members, key=lambda name: (name.count("/"), len(name)))[0]
         frontages = gpd.read_file(f"/vsizip/{frontage_cache}/{frontage_member}")
-        if frontages.crs is None: raise RuntimeError("Official frontage layer has no CRS")
-        frontages = frontages.to_crs("EPSG:4326").cx[west:east, south:north].copy()
-        if frontages.empty: raise RuntimeError("No official frontage features inside the Obelisco bounds")
-        smp_field = next((field for field in frontages.columns if str(field).lower() == "smp"), None)
-        if not smp_field: raise RuntimeError(f"Official frontage layer has no SMP field: {list(frontages.columns)}")
-        frontage_field = next((field for field in frontages.columns if str(field).lower() == "frente"), None)
-        business_points = [Point(f["point"][0],f["point"][1]) for f in features if f.get("type")=="business" and f.get("point")]
-        business_points_m = gpd.GeoSeries(business_points,crs="EPSG:4326").to_crs("EPSG:3857") if business_points else gpd.GeoSeries([],crs="EPSG:3857")
+        if frontages.crs is None:
+            raise RuntimeError("Official frontage layer has no CRS")
+        print(f"Official frontage schema: {[str(column) for column in frontages.columns if column != 'geometry']}", flush=True)
+        frontages = frontages.to_crs("EPSG:4326")
+        frontages = frontages[frontages.geometry.notna() & ~frontages.geometry.is_empty].copy()
+        frontages = frontages.cx[west:east, south:north].copy()
+        if frontages.empty:
+            raise RuntimeError("No official frontage features inside the Obelisco bounds")
+        smp_field = next((field for field in frontages.columns if str(field).strip().lower() in ("smp", "s_m_p", "nomenclatura")), None)
+        if not smp_field:
+            raise RuntimeError(f"Official frontage layer has no parcel identifier: {list(frontages.columns)}")
+        frontage_field = next((field for field in frontages.columns if str(field).strip().lower() in ("frente", "calle", "nom_calle", "nombre_calle")), None)
+
+        official_smp = {
+            normalize_smp(value)
+            for value in official_layer["smp"].dropna().astype(str)
+        } if "smp" in official_layer.columns else set()
+        frontages["__smp_norm"] = frontages[smp_field].map(normalize_smp)
+        frontage_smp = set(frontages["__smp_norm"]) - {""}
+        matching_smp = official_smp.intersection(frontage_smp) if official_smp else set()
+        print(
+            f"Official frontages in Obelisco bounds: {len(frontages)}; "
+            f"non-empty parcel IDs: {len(frontage_smp)}; "
+            f"IDs matching official building volumes: {len(matching_smp)}; "
+            f"sample IDs: {list(frontage_smp)[:12]}",
+            flush=True
+        )
+        if official_smp and not matching_smp:
+            raise RuntimeError("No cadastral SMP identifiers overlap between frontage and official building-volume layers; refusing guessed photo-to-building matches")
+
+        business_points = [
+            Point(feature["point"][0], feature["point"][1])
+            for feature in features
+            if feature.get("type") == "business" and feature.get("point")
+        ]
+        business_points_m = (
+            gpd.GeoSeries(business_points, crs="EPSG:4326").to_crs("EPSG:3857")
+            if business_points else gpd.GeoSeries([], crs="EPSG:3857")
+        )
         frontages_m = frontages.to_crs("EPSG:3857")
-        candidates=[]
-        for position,(_,frontage) in enumerate(frontages.iterrows()):
-            smp=str(frontage.get(smp_field) or "").strip()
-            geom=frontage.geometry
-            if not smp or not re.fullmatch(r"\d{2}-\d{3}[A-Z]?-[A-Z0-9]{3,4}",smp) or geom is None or geom.is_empty: continue
-            projected=frontages_m.geometry.iloc[position]
-            if projected.length<3: continue
-            nearest_business=min((projected.distance(point) for point in business_points_m),default=9999)
-            street=str(frontage.get(frontage_field) or "").upper() if frontage_field else ""
-            priority=0 if nearest_business<=18 else 1 if any(name in street for name in ("CORRIENTES","LAVALLE","PELLEGRINI","CERRITO","LIBERTAD","TALCAHUANO")) else 2
-            center_distance=geom.centroid.distance(Point(ORIGIN["lon"],ORIGIN["lat"]))
-            candidates.append((priority,nearest_business,center_distance,smp,geom))
-        selected=[]; seen_smp=set()
-        for item in sorted(candidates,key=lambda item:(item[0],item[1],item[2])):
-            if item[3] in seen_smp: continue
-            seen_smp.add(item[3]); selected.append(item)
-            if len(selected)>=48: break
-        print(f"Official frontage photo candidates selected: {len(selected)}",flush=True)
-        for _,_,_,smp,frontage_geom in selected:
-            safe_smp=re.sub(r"[^A-Za-z0-9_-]","_",smp)
-            cached_photo=facade_cache_dir/f"{safe_smp}.jpg"
-            public_photo=facade_photo_dir/f"{safe_smp}.jpg"
-            photo_date=""
-            if not cached_photo.exists() or cached_photo.stat().st_size<1000:
-                try:
-                    metadata_response=requests.get("https://fotos.usig.buenosaires.gob.ar/getDatosFotos",
-                        params={"smp":smp,"callback":"callback"},timeout=(10,25),
-                        headers={"User-Agent":"BuenosAiresPerfecta/1.0"})
-                    metadata_response.raise_for_status()
-                    raw=metadata_response.text.strip()
-                    if "(" in raw and raw.endswith((")",");")): raw=raw[raw.find("(")+1:raw.rfind(")")]
-                    photo_records=json.loads(raw)
-                    if not isinstance(photo_records,list) or not photo_records: continue
-                    photo_date=str(photo_records[0].get("fecha") or "")
-                    image_response=requests.get("https://fotos.usig.buenosaires.gob.ar/getFoto",
-                        params={"smp":smp,"i":0,"w":640,"h":800},timeout=(10,35),
-                        headers={"User-Agent":"BuenosAiresPerfecta/1.0"})
-                    image_response.raise_for_status()
-                    image_bytes=image_response.content
-                    if not (image_bytes.startswith(b"\xff\xd8") or image_bytes.startswith(b"\x89PNG\r\n\x1a\n")):
-                        print(f"USIG returned non-image response for SMP {smp}; skipping.",flush=True); continue
-                    cached_photo.write_bytes(image_bytes)
-                except Exception as exc:
-                    print(f"USIG facade photo unavailable for SMP {smp}: {exc}",flush=True); continue
-            else: photo_date="USIG archive (cached)"
-            shutil.copy2(cached_photo,public_photo)
-            frontage_line = frontage_geom if frontage_geom.geom_type=="LineString" else max(list(frontage_geom.geoms),key=lambda line:line.length) if frontage_geom.geom_type=="MultiLineString" and len(frontage_geom.geoms) else None
-            line_coords=[[round(float(x),7),round(float(y),7)] for x,y in frontage_line.coords] if frontage_line is not None else []
-            if len(line_coords)<2: continue
-            nearest_height=9.5
+        origin_point = Point(ORIGIN["lon"], ORIGIN["lat"])
+        candidates = []
+        for position, (_, frontage) in enumerate(frontages.iterrows()):
+            smp = str(frontage.get(smp_field) or "").strip()
+            normalized_smp = normalize_smp(smp)
+            geom = frontage.geometry
+            if not smp or not normalized_smp or geom is None or geom.is_empty:
+                continue
+            if official_smp and normalized_smp not in official_smp:
+                continue
+            projected = frontages_m.geometry.iloc[position]
+            frontage_line = longest_frontage_line(geom)
+            if frontage_line is None or projected.length < 3:
+                continue
+            nearest_business = min(
+                (projected.distance(point) for point in business_points_m),
+                default=9999
+            )
+            street = str(frontage.get(frontage_field) or "").upper() if frontage_field else ""
+            priority = (
+                0 if nearest_business <= 18 else
+                1 if any(name in street for name in (
+                    "CORRIENTES", "LAVALLE", "PELLEGRINI", "CERRITO",
+                    "LIBERTAD", "TALCAHUANO", "ESMERALDA", "SUIPACHA"
+                )) else 2
+            )
+            center_distance = geom.centroid.distance(origin_point)
+            candidates.append((priority, nearest_business, center_distance, smp, normalized_smp, geom))
+
+        selected = []
+        seen_smp = set()
+        for item in sorted(candidates, key=lambda item: (item[0], item[1], item[2])):
+            if item[4] in seen_smp:
+                continue
+            seen_smp.add(item[4])
+            selected.append(item)
+            if len(selected) >= 120:
+                break
+        print(f"Official frontage photo candidates selected: {len(selected)} (of {len(candidates)} matched parcel fronts)", flush=True)
+
+        facade_profiles = {}
+        for _, _, _, smp, normalized_smp, frontage_geom in selected:
+            safe_smp = re.sub(r"[^A-Za-z0-9_-]", "_", smp)
+            cached_photo = facade_cache_dir / f"{safe_smp}.jpg"
+            photo_date = ""
             try:
-                nearest_indexes=official_layer.sindex.nearest(frontage_geom,return_all=False)
-                if nearest_indexes.shape[1]:
-                    nearest_row=official_layer.iloc[int(nearest_indexes[1][0])]
-                    measured=official_height(nearest_row,height_fields,floor_fields)
-                    if measured: nearest_height=measured[0]
-            except Exception: pass
-            features.append({"type":"facadePhoto","line":line_coords,"height":max(4,min(float(nearest_height),45)),
-                "image":f"data/facade-photos/{safe_smp}.jpg","photoDate":photo_date,"smp":smp,
-                "source":"Buenos Aires Ciudad · USIG · Fotografía de fachada"})
-            facade_photo_count+=1
-            time.sleep(0.12)
-        counts["facade_photos"]=facade_photo_count
-        print(f"USIG facade photos added: {facade_photo_count}",flush=True)
+                if cached_photo.exists() and cached_photo.stat().st_size > 1000:
+                    image_bytes = cached_photo.read_bytes()
+                    photo_date = "USIG archive (cached; date metadata pending)"
+                else:
+                    metadata_response = requests.get(
+                        "https://fotos.usig.buenosaires.gob.ar/getDatosFotos",
+                        params={"smp": smp, "callback": "callback"},
+                        timeout=(10, 25),
+                        headers={"User-Agent": "BuenosAiresPerfecta/1.0"}
+                    )
+                    metadata_response.raise_for_status()
+                    raw = metadata_response.text.strip()
+                    if "(" in raw and raw.endswith((")", ");")):
+                        raw = raw[raw.find("(") + 1:raw.rfind(")")]
+                    metadata = json.loads(raw)
+                    if isinstance(metadata, dict):
+                        photo_records = metadata.get("fotos") or metadata.get("result") or metadata.get("data") or []
+                    else:
+                        photo_records = metadata
+                    if not isinstance(photo_records, list) or not photo_records:
+                        continue
+                    first_record = photo_records[0] if isinstance(photo_records[0], dict) else {}
+                    photo_date = str(
+                        first_record.get("fecha") or first_record.get("date") or
+                        first_record.get("fecha_foto") or first_record.get("fechaFoto") or ""
+                    )[:48]
+                    image_response = requests.get(
+                        "https://fotos.usig.buenosaires.gob.ar/getFoto",
+                        params={"smp": smp, "i": 0, "w": 800, "h": 1000},
+                        timeout=(10, 35),
+                        headers={"User-Agent": "BuenosAiresPerfecta/1.0"}
+                    )
+                    image_response.raise_for_status()
+                    image_bytes = image_response.content
+                    if not (
+                        image_bytes.startswith(b"\xff\xd8") or
+                        image_bytes.startswith(b"\x89PNG\r\n\x1a\n")
+                    ):
+                        print(f"USIG returned non-image response for SMP {smp}; skipping", flush=True)
+                        continue
+                    cached_photo.write_bytes(image_bytes)
+
+                primary_hex, secondary_hex = sample_facade_colors(image_bytes)
+                facade_profiles[normalized_smp] = {
+                    "primary": primary_hex,
+                    "secondary": secondary_hex,
+                    "date": photo_date
+                }
+                facade_photo_count += 1
+                year_match = re.search(r"20\d{2}", photo_date)
+                if year_match and year_match.group(0) == "2026":
+                    facade_current_2026 += 1
+                else:
+                    facade_historical += 1
+            except Exception as exc:
+                print(f"USIG facade reference unavailable for SMP {smp}: {exc}", flush=True)
+                continue
+
+            time.sleep(0.08)
+
+        if facade_profiles:
+            for feature in features:
+                if feature.get("type") != "building":
+                    continue
+                profile = facade_profiles.get(normalize_smp(feature.get("smp")))
+                if not profile:
+                    continue
+                feature["facadeHex"] = profile["primary"]
+                feature["facadeHexSecondary"] = profile["secondary"]
+                feature["facadeReferenceDate"] = profile["date"]
+                year_match = re.search(r"20\d{2}", profile["date"])
+                feature["facadeReferenceStatus"] = (
+                    "verified_2026" if year_match and year_match.group(0) == "2026"
+                    else "historical_reference" if profile["date"]
+                    else "date_unverified"
+                )
+                facade_color_matches += 1
+
+        counts["facade_photos"] = facade_photo_count
+        counts["facade_color_matches"] = facade_color_matches
+        counts["facade_current_2026"] = facade_current_2026
+        counts["facade_historical_reference"] = facade_historical
+        print(
+            f"USIG facade color profiles: photos={facade_photo_count}; "
+            f"building matches={facade_color_matches}; 2026 dated={facade_current_2026}; "
+            f"historical or undated={facade_historical}",
+            flush=True
+        )
     except Exception as exc:
-        counts["facade_photos"]=facade_photo_count
-        print(f"WARNING: USIG facade photo enrichment unavailable; keeping the verified base map: {exc}",flush=True)
+        counts["facade_photos"] = facade_photo_count
+        counts["facade_color_matches"] = facade_color_matches
+        counts["facade_current_2026"] = facade_current_2026
+        counts["facade_historical_reference"] = facade_historical
+        print(f"WARNING: USIG facade color enrichment unavailable; keeping verified base geometry: {exc}", flush=True)
 
     sources = [{"name":"OpenStreetMap contributors","license":"ODbL 1.0","attribution":"© OpenStreetMap contributors"}]
     if counts["official_height_matches"]:

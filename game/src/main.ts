@@ -99,7 +99,9 @@ fetch('data/obelisco-world.json')
     mapAttribution.textContent = worldAttribution;
     const pizzerias = data.counts?.pizzerias ?? 0;
     const businesses = data.counts?.named_businesses ?? 0;
-    loadStatus.textContent = `${businesses} locales identificados · ${pizzerias} pizzerías · fachadas y carteles`;
+    const facadeColors = data.counts?.facade_color_matches ?? 0;
+    const currentFacades = data.counts?.facade_current_2026 ?? 0;
+    loadStatus.textContent = `${businesses} locales · ${pizzerias} pizzerías · ${facadeColors} fachadas con color fotográfico · ${currentFacades} referencias fechadas en 2026`;
     startButton.disabled = false;
     startButton.textContent = 'ENTRAR AL OBELISCO →';
     worldReady = true;

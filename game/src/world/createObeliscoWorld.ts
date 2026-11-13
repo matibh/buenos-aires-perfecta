@@ -15,6 +15,11 @@ type GeoFeature = {
   flats?: string;
   facadeMaterial?: string;
   facadeColour?: string;
+  facadeHex?: string;
+  facadeHexSecondary?: string;
+  facadeReferenceDate?: string;
+  facadeReferenceStatus?: string;
+  smp?: string;
   architecture?: string;
   roofShape?: string;
   roofMaterial?: string;
@@ -149,7 +154,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const roads: THREE.BufferGeometry[]=[];
   const sidewalks: THREE.BufferGeometry[]=[];
   type InstanceBox = {x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number};
-  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; windows: InstanceBox[]; frames: InstanceBox[]; storefronts: InstanceBox[]; balconies: InstanceBox[]; balconyRails: InstanceBox[]; rooftopUnits: InstanceBox[]; centerX:number; centerZ:number };
+  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; sampledBuildings: Map<string, THREE.BufferGeometry[]>; windows: InstanceBox[]; frames: InstanceBox[]; storefronts: InstanceBox[]; balconies: InstanceBox[]; balconyRails: InstanceBox[]; rooftopUnits: InstanceBox[]; centerX:number; centerZ:number };
   const chunkBuilds = new Map<string, ChunkBuild>();
   const CHUNK_SIZE = 256;
   const getChunk = (x:number,z:number):ChunkBuild => {
@@ -163,7 +168,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const detail=new THREE.Group();
       detail.name='chunk-details';
       group.add(geometryGroup,detail);
-      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),windows:[],frames:[],storefronts:[],balconies:[],balconyRails:[],rooftopUnits:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
+      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),sampledBuildings:new Map(),windows:[],frames:[],storefronts:[],balconies:[],balconyRails:[],rooftopUnits:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
       group.userData.renderChunk=true;
       group.userData.detailGroup=detail;
       group.userData.centerX=chunk.centerX;
@@ -215,7 +220,15 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),maxZ=Math.max(...zs);
       const chunk=getChunk((minX+maxX)/2,(minZ+maxZ)/2);
       const facadeIndex = facadePaletteIndex(f, materialIndex);
-      chunk.buildings[facadeIndex].push(buildingGeometry(ring,data.origin,height));
+      const buildingMesh = buildingGeometry(ring,data.origin,height);
+      const sampledHex = /^#[0-9a-f]{6}$/i.test(f.facadeHex || '') ? f.facadeHex!.toLowerCase() : '';
+      if (sampledHex) {
+        const bucket = chunk.sampledBuildings.get(sampledHex);
+        if (bucket) bucket.push(buildingMesh);
+        else chunk.sampledBuildings.set(sampledHex,[buildingMesh]);
+      } else {
+        chunk.buildings[facadeIndex].push(buildingMesh);
+      }
       // Small rooftop plant rooms and HVAC boxes break up flat roof silhouettes.
       if(footprintArea(ring,data.origin)>85) {
         const roofX=(minX+maxX)/2, roofZ=(minZ+maxZ)/2;
@@ -295,6 +308,9 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   }
   for (const chunk of chunkBuilds.values()) {
     chunk.buildings.forEach((geometries,index)=>addMerged(chunk.geometryGroup,geometries,BUILDING_MATERIALS[index],true));
+    for (const [hex,geometries] of chunk.sampledBuildings) {
+      addMerged(chunk.geometryGroup,geometries,new THREE.MeshStandardMaterial({color:hex,roughness:.92}),true);
+    }
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),WINDOW_FRAME,chunk.frames);
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),GLASS,chunk.windows);
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),GLASS,chunk.storefronts);

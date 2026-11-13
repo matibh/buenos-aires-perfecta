@@ -649,7 +649,7 @@ def main():
                         headers={"User-Agent":"BuenosAiresPerfecta/1.0"})
                     metadata_response.raise_for_status()
                     raw=metadata_response.text.strip()
-                    if raw.startswith("callback(") and raw.endswith(")"): raw=raw[len("callback("):-1]
+                    if "(" in raw and raw.endswith((")",");")): raw=raw[raw.find("(")+1:raw.rfind(")")]
                     photo_records=json.loads(raw)
                     if not isinstance(photo_records,list) or not photo_records: continue
                     photo_date=str(photo_records[0].get("fecha") or "")

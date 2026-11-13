@@ -134,7 +134,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const roads: THREE.BufferGeometry[]=[];
   type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; windows: Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>; frames: Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>; centerX:number; centerZ:number };
   const chunkBuilds = new Map<string, ChunkBuild>();
-  const CHUNK_SIZE = 128;
+  const CHUNK_SIZE = 256;
   const getChunk = (x:number,z:number):ChunkBuild => {
     const cx=Math.floor(x/CHUNK_SIZE), cz=Math.floor(z/CHUNK_SIZE), key=`${cx},${cz}`;
     let chunk=chunkBuilds.get(key);

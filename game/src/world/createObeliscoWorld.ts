@@ -371,7 +371,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
           for(let bay=0;bay<count;bay++){
             const t=(bay+.5)/count,wx=a.x+dx*t,wz=a.z+dz*t;
             const x=wx+nx*.085,z=wz+nz*.085;
-            chunk.windows.push({x,y,z,rotation:angle,sx:windowWidth,sy:windowHeight,sz:.06});
+            chunk.windows.push({x:wx+nx*.025,y,z:wz+nz*.025,rotation:angle,sx:windowWidth,sy:windowHeight,sz:.012});
             const trimHex = ''; // Painted/flush window treatment; no raised metal frame.
             if (trimHex) {
               const trimBucket = chunk.sampledFrames.get(trimHex);

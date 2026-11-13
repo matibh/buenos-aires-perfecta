@@ -49,7 +49,7 @@ hud.innerHTML = `
     <div><small>VOLAR</small><strong>2× SPACE</strong></div><div><small>BAJAR</small><strong>SHIFT</strong></div>
     <div class="mode" id="mode">A PIE</div>
   </div>
-  <div class="hint" id="hint">Click para capturar el mouse · ESC para liberar</div>
+  <div class="hint" id="hint">WASD caminar · SPACE saltar · doble SPACE volar · Click captura mouse</div>
   <div class="map-attribution" id="map-attribution"></div>
 `;
 root.appendChild(hud);

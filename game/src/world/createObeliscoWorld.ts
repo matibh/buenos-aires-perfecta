@@ -396,15 +396,17 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
             const y=floor*floorStep;
             const item={x:(a.x+b.x)/2+normalX*.12,y,z:(a.z+b.z)/2+normalZ*.12,rotation:angle,sx:len,sy:.105,sz:.24};
             if(trimHex){
-              const bucket=chunk.sampledCornices.get(trimHex);
-              if(bucket)bucket.push(item);else chunk.sampledCornices.set(trimHex,[item]);
+              let bucket=chunk.sampledCornices.get(trimHex);
+              if(!bucket){bucket=[];chunk.sampledCornices.set(trimHex,bucket);}
+              bucket.push(item);
             } else chunk.cornices.push(item);
           }
           for(const endpoint of [a,b]){
             const item={x:endpoint.x+normalX*.12,y:height/2,z:endpoint.z+normalZ*.12,rotation:angle,sx:.22,sy:height,sz:.28};
             if(trimHex){
-              const bucket=chunk.sampledPilasters.get(trimHex);
-              if(bucket)bucket.push(item);else chunk.sampledPilasters.set(trimHex,[item]);
+              let bucket=chunk.sampledPilasters.get(trimHex);
+              if(!bucket){bucket=[];chunk.sampledPilasters.set(trimHex,bucket);}
+              bucket.push(item);
             } else chunk.pilasters.push(item);
           }
           if(f.architectureProfile === 'guerrin-2026' && f.plinthHex){

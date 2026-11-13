@@ -1,9 +1,10 @@
 """Build an attributed 3D city dataset around the Buenos Aires Obelisk."""
 from __future__ import annotations
-import json, re, time
+import io, json, re, time
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
+import requests
 import osmnx as ox
 from shapely.ops import unary_union
 
@@ -55,6 +56,33 @@ def number(value):
 
 def valid_value(value):
     return pd.notna(value) and not (isinstance(value, str) and not value.strip())
+
+def read_city_layer(url, bbox, label):
+    """Download and decode CABA open-data resources explicitly (GeoJSON or zipped GIS)."""
+    response = requests.get(url, timeout=180, headers={"User-Agent": "BuenosAiresPerfecta/1.0 (open-data game project)"})
+    response.raise_for_status()
+    content = response.content
+    content_type = response.headers.get("Content-Type", "").lower()
+    print(f"{label}: HTTP {response.status_code}, {len(content)} bytes, content-type={content_type}")
+    if not content:
+        raise RuntimeError(f"{label}: empty download")
+    # Some BA Data portal resources are GeoJSON, others are zipped shapefiles.
+    if content.lstrip().startswith((b"{", b"[")):
+        data = json.loads(content.decode("utf-8-sig"))
+        if data.get("type") == "FeatureCollection":
+            layer = gpd.GeoDataFrame.from_features(data.get("features", []), crs="EPSG:4326")
+        elif data.get("type") == "Feature":
+            layer = gpd.GeoDataFrame.from_features([data], crs="EPSG:4326")
+        else:
+            raise RuntimeError(f"{label}: JSON response is not a GeoJSON FeatureCollection")
+        west, south, east, north = bbox
+        return layer.cx[west:east, south:north].copy()
+    if content[:4] == b"PK\\x03\\x04" or "zip" in content_type:
+        layer = gpd.read_file(io.BytesIO(content), bbox=bbox)
+        return layer
+    preview = content[:240].decode("utf-8", errors="replace").replace("\\n", " ")
+    raise RuntimeError(f"{label}: unsupported response format ({content_type}); body starts: {preview}")
+
 
 def load_official_layer():
     """Load the City's 3D building-volume layer, clipped to the playable area."""

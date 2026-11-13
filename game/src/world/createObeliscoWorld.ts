@@ -227,7 +227,10 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     .sort((a,b) => Number(b.isPizzeria === true) - Number(a.isPizzeria === true))
     .slice(0,240);
   for (const feature of signFeatures) {
-    const point = local(feature.point[0], feature.point[1], data.origin);
+    const coordinates = feature.point;
+    const venueName = feature.name?.trim();
+    if (!coordinates || !venueName) continue;
+    const point = local(coordinates[0], coordinates[1], data.origin);
     let best: {distance:number;x:number;z:number;angle:number;height:number} | null = null;
     for (const edge of facadeEdges) {
       const dx = edge.b.x - edge.a.x, dz = edge.b.z - edge.a.z;
@@ -255,13 +258,13 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     do {
       ctx.font = `bold ${fontSize}px Arial`;
       fontSize -= 2;
-    } while (ctx.measureText(feature.name).width > 330 && fontSize > 20);
+    } while (ctx.measureText(venueName).width > 330 && fontSize > 20);
     ctx.fillStyle = '#fff5e5';
-    ctx.fillText(feature.name.slice(0,38),192,48,340);
+    ctx.fillText(venueName.slice(0,38),192,48,340);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const material = new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide});
-    const width = THREE.MathUtils.clamp(feature.name.length * .19, 2.1, 5.2);
+    const width = THREE.MathUtils.clamp(venueName.length * .19, 2.1, 5.2);
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(width,.72),material);
     sign.position.set(best.x,best.height > 5 ? 3.55 : 2.8,best.z);
     sign.rotation.y = best.angle;

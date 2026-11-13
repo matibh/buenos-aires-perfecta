@@ -2,32 +2,25 @@
 
 Un mundo 3D jugable ambientado en Buenos Aires, construido a partir de datos geográficos abiertos y verificables.
 
-## Estado actual
+## Alcance actual
+
+El único sector en desarrollo es el **Obelisco y su entorno inmediato**, incluyendo Plaza de la República, la Avenida 9 de Julio y las calles circundantes.
+
+## Estado del proyecto
 
 - Base web creada con Three.js, TypeScript y Vite.
-- Blockout 3D esquemático para validar cámara y escala visual; **no representa todavía edificios ni calles relevados**.
-- Área piloto definida en Palermo Soho, alrededor de Plaza Armenia / Plaza Serrano.
-- Pipeline inicial para descargar y auditar fuentes candidatas de CABA y OpenStreetMap.
-- La geometría real, las alturas y la cobertura todavía deben validarse con el primer informe de datos.
-
-## Área piloto
-
-Extensión de trabajo inicial:
-
-- Norte: Scalabrini Ortiz
-- Sur: Uriarte
-- Este: Costa Rica
-- Oeste: Honduras
-- BBox WGS84: west `-58.4335`, south `-34.5925`, east `-58.4225`, north `-34.5850`
+- Generador geoespacial específico para construir el mundo del Obelisco.
+- Integración de fuentes oficiales de CABA y OpenStreetMap, con validaciones para evitar publicar geometría incompleta o aproximaciones no verificadas.
+- La fidelidad de edificios, alturas, comercios y mobiliario se valida mediante auditorías de datos y pruebas visuales.
 
 ## Estructura
 
 - `game/`: juego web Three.js + TypeScript.
-- `map-generator/`: descarga, inspección y procesamiento geoespacial.
-- `docs/`: plan técnico, fuentes y licencias.
-- `.github/workflows/`: auditoría automatizada de fuentes en GitHub Actions.
+- `map-generator/`: construcción del entorno geográfico del Obelisco.
+- `docs/`: plan técnico, fuentes y criterios de fidelidad.
+- `.github/workflows/`: construcción y despliegue del mundo del Obelisco.
 
-## Desarrollo del juego
+## Desarrollo
 
 Requiere Node.js 20+:
 
@@ -36,12 +29,10 @@ npm install
 npm run dev
 ```
 
-## Auditoría de datos
+## Construcción del mundo
 
-El workflow **Palermo source data audit** se ejecuta al actualizar el pipeline geográfico y puede lanzarse manualmente desde GitHub Actions. Descarga fuentes candidatas de CABA y consulta OpenStreetMap; genera informes como artefactos temporales. Los datasets crudos no se versionan en Git.
+El workflow **Build and deploy Buenos Aires Perfecta** ejecuta el generador geoespacial del Obelisco cuando cambian sus fuentes o su implementación. La publicación se realiza únicamente después de superar las validaciones y la compilación del juego.
 
-Ver [map-generator/README.md](map-generator/README.md), [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) y [docs/TECHNICAL_PLAN.md](docs/TECHNICAL_PLAN.md).
+## Fuentes y licencias
 
-## Licencias
-
-Cada fuente conserva sus condiciones de uso y atribución. La combinación de CABA y OpenStreetMap requiere revisar sus licencias antes de distribuir datos derivados o assets del juego.
+Cada fuente conserva sus condiciones de uso y atribución. La combinación de datos oficiales de CABA y OpenStreetMap requiere respetar sus respectivas licencias antes de distribuir datos derivados o assets del juego.

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 type GeoFeature = {
-  type: 'building' | 'road' | 'green' | 'tree';
+  type: 'building' | 'road' | 'green' | 'plaza' | 'tree';
   polygons?: number[][][];
   line?: number[][];
   point?: number[];
@@ -17,6 +17,7 @@ export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: nu
 
 const ROAD = new THREE.MeshStandardMaterial({ color: 0x303638, roughness: .98, side: THREE.DoubleSide });
 const GREEN = new THREE.MeshStandardMaterial({ color: 0x66845c, roughness: 1, side: THREE.DoubleSide });
+const PLAZA = new THREE.MeshStandardMaterial({ color: 0x999991, roughness: 1, side: THREE.DoubleSide });
 const BUILDING_COLORS = [0xc9c0b3,0xd8d0c4,0xbcb5aa,0xd5c8b6,0xb5b1aa,0xc6b69f,0xded8cd];
 const BUILDING_MATERIALS = BUILDING_COLORS.map(color => new THREE.MeshStandardMaterial({ color, roughness: .94 }));
 const WHITE = new THREE.MeshStandardMaterial({ color: 0xe8e7df, roughness: .9 });
@@ -128,7 +129,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
 
   for(const f of data.features){
     if(f.type==='road' && f.line && f.line.length>1) roads.push(roadGeometry(f.line,f.width??9,data.origin));
-    if(f.type==='green' && f.polygons) for(const poly of f.polygons) if(poly.length>=4) group.add(polygonMesh(poly,data.origin,.16,GREEN));
+    if((f.type==='green'||f.type==='plaza') && f.polygons) for(const poly of f.polygons) if(poly.length>=4) group.add(polygonMesh(poly,data.origin,f.type==='plaza'?.17:.16,f.type==='plaza'?PLAZA:GREEN));
   }
   addMerged(group,roads,ROAD);
 

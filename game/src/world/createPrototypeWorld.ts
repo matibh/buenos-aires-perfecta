@@ -6,7 +6,7 @@ type InstanceTransform = { position: THREE.Vector3; rotation?: THREE.Euler; scal
 
 /** Schematic playable blockout with procedural Palermo-inspired facades.
  * Geometry is provisional and is not surveyed CABA data. */
-export function createPrototypeWorld(scene: THREE.Scene): WorldCollider[] {
+export function createPrototypeWorld(scene: THREE.Group): WorldCollider[] {
   const colliders: WorldCollider[] = [];
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(150, 130), new THREE.MeshStandardMaterial({ color: 0x9eaa91 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);

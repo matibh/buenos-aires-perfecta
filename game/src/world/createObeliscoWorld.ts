@@ -248,9 +248,9 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const xs=pts.map(p=>p.x),zs=pts.map(p=>p.z);
       const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),maxZ=Math.max(...zs);
       const chunk=getChunk((minX+maxX)/2,(minZ+maxZ)/2);
-      const facadeIndex = facadePaletteIndex(f, materialIndex);
+      const facadeIndex = materialIndex;
       const buildingMesh = buildingGeometry(ring,data.origin,height);
-      const sampledHex = /^#[0-9a-f]{6}$/i.test(f.facadeHex || '') ? f.facadeHex!.toLowerCase() : '';
+      const sampledHex = ''; // Use plain building masses; disable inaccurate facade colour sampling.
       if (sampledHex) {
         const surface = f.facadeSurface || 'plaster';
         const sampleKey = sampledHex + '|' + surface;
@@ -271,7 +271,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
 
       const landmark=(f.name||'').toLowerCase();
       const mappedArea=footprintArea(ring,data.origin);
-      if(landmark.includes('teatro col') && !colonLandmarkBuilt && mappedArea>1000) {
+      if(false && landmark.includes('teatro col') && !colonLandmarkBuilt && mappedArea>1000) {
         colonLandmarkBuilt=true;
         // The Colón keeps its mapped footprint, with a recognizable historic roof and street colonnade.
         const cx=(minX+maxX)/2,cz=(minZ+maxZ)/2;
@@ -289,7 +289,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
           }
         }
       }
-      if(landmark.includes('gran rex') && !granRexSignBuilt && mappedArea>500) {
+      if(false && landmark.includes('gran rex') && !granRexSignBuilt && mappedArea>500) {
         granRexSignBuilt=true;
         // A legible marquee marks the real Gran Rex frontage facing Corrientes.
         const canvas=document.createElement('canvas'); canvas.width=512; canvas.height=96;
@@ -303,6 +303,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
         sign.position.set((minX+maxX)/2,Math.min(height-2.5,9),maxZ+.18);group.add(sign);
       }
 
+      // Facade detailing is intentionally disabled until accurate, verified references exist.
+      if (false) {
       // Repeated window bays, aligned to each actual footprint edge.
       const taggedLevels = Number.parseFloat(f.levels || '');
       const explicitFloors = Number(f.architecturalFloors);
@@ -411,6 +413,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
         }
       }
       }
+      }
     }
   }
   for (const chunk of chunkBuilds.values()) {
@@ -469,10 +472,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
 
   // Real OSM business names become a shared-atlas signage layer.
   // One merged sign mesh + instanced awnings keeps storefront detail inexpensive.
-  const signFeatures = data.features
-    .filter(feature => feature.type === 'business' && feature.point && (feature.brand?.trim() || feature.name?.trim()))
-    .sort((a,b) => Number(b.isPizzeria === true) - Number(a.isPizzeria === true))
-    .slice(0,256);
+  const signFeatures: GeoFeature[] = []; // Do not invent storefront signage or awnings.
   const atlas = document.createElement('canvas');
   atlas.width = 1024; atlas.height = 4096;
   const atlasCtx = atlas.getContext('2d');
@@ -572,7 +572,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
 
 
   // USIG facade photos are packed into one atlas and one mesh to preserve high FPS.
-  const facadePhotoFeatures=data.features.filter(feature=>feature.type==='facadePhoto'&&feature.image&&feature.line&&feature.line.length>=2);
+  const facadePhotoFeatures: GeoFeature[] = []; // Do not project unverified facade photos onto buildings.
   if(facadePhotoFeatures.length){
     void (async()=>{
     const loadedPhotos=await Promise.all(facadePhotoFeatures.map(feature=>new Promise<{feature:GeoFeature;image:HTMLImageElement}|null>(resolve=>{

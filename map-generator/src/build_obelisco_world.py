@@ -114,7 +114,7 @@ def main():
 
     def row_tags(row):
         result = {}
-        for key in ("building","height","building:levels","levels","name","highway","leisure","landuse","natural","width","surface","amenity","shop"):
+        for key in ("building","height","building:levels","levels","name","nombre","nombre_ev","nom_mapa","highway","leisure","landuse","natural","width","surface","amenity","shop","flagtipo"):
             value = row.get(key)
             if valid_value(value): result[key] = value
         return result

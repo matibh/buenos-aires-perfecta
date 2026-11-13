@@ -100,8 +100,21 @@ def read_city_layer(url, bbox, label):
 def read_caba_resource(resource_id, bbox, label):
     """Resolve a CKAN resource URL and use resilient direct decoding."""
     metadata_url = f"https://data.buenosaires.gob.ar/api/3/action/resource_show?id={resource_id}"
-    metadata = request_with_retries(metadata_url, f"{label} CKAN metadata", timeout=60).json()
+    try:
+        response = request_with_retries(metadata_url, f"{label} CKAN metadata", timeout=60)
+        metadata = response.json()
+    except (requests.exceptions.JSONDecodeError, ValueError) as exc:
+        # CKAN occasionally returns a short non-JSON gateway/error page with HTTP 200.
+        # The official Callejero download URL is already published in the dataset
+        # and can be used directly; do not let a metadata outage block the whole map.
+        if label != "Callejero":
+            raise RuntimeError(f"{label}: CKAN metadata was not valid JSON") from exc
+        print("Callejero CKAN metadata unavailable; using the published official download URL.", flush=True)
+        return read_city_layer(STREET_URL, bbox, label)
     if not metadata.get("success") or not metadata.get("result", {}).get("url"):
+        if label == "Callejero":
+            print("Callejero CKAN metadata has no download URL; using the published official download URL.", flush=True)
+            return read_city_layer(STREET_URL, bbox, label)
         raise RuntimeError(f"BA Data CKAN did not return a download URL for {label}")
     download_url = metadata["result"]["url"]
     print(f"Resolved official {label} resource: {download_url}")

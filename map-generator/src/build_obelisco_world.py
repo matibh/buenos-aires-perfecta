@@ -21,33 +21,85 @@ ox.settings.timeout = 240
 ox.settings.requests_timeout = 240
 ox.settings.overpass_rate_limit = True
 
-def read_caba_resource(resource_id, bbox, label):
-    """Resolve the real CKAN resource URL before asking GDAL to read it."""
-    import requests
-    metadata_url = f"https://data.buenosaires.gob.ar/api/3/action/resource_show?id={resource_id}"
-    response = requests.get(metadata_url, timeout=60, headers={"User-Agent": "BuenosAiresPerfecta/1.0"})
+def request_with_retries(url, label, timeout=180):
+    """GET with bounded retries for transient BA Data/CDN failures."""
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+    retry = Retry(total=5, connect=5, read=3, status=5, backoff_factor=2,
+                  status_forcelist=(429, 500, 502, 503, 504),
+                  allowed_methods=frozenset(["GET"]), respect_retry_after_header=True)
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    response = session.get(url, timeout=timeout, headers={"User-Agent": "BuenosAiresPerfecta/1.0 (open-data game project)"})
     response.raise_for_status()
-    metadata = response.json()
+    print(f"{label}: HTTP {response.status_code}, {len(response.content)} bytes")
+    return response
+
+def read_city_layer(url, bbox, label):
+    """Download and decode CABA open-data resources explicitly (GeoJSON or zipped GIS)."""
+    response = request_with_retries(url, label)
+    content = response.content
+    content_type = response.headers.get("Content-Type", "").lower()
+    if not content:
+        raise RuntimeError(f"{label}: empty download")
+    if content.lstrip().startswith((b"{", b"[")):
+        data = json.loads(content.decode("utf-8-sig"))
+        if data.get("type") == "FeatureCollection":
+            layer = gpd.GeoDataFrame.from_features(data.get("features", []), crs="EPSG:4326")
+        elif data.get("type") == "Feature":
+            layer = gpd.GeoDataFrame.from_features([data], crs="EPSG:4326")
+        else:
+            raise RuntimeError(f"{label}: JSON response is not a GeoJSON FeatureCollection")
+        west, south, east, north = bbox
+        return layer.cx[west:east, south:north].copy()
+    if content[:4] == b"PK\\x03\\x04" or "zip" in content_type:
+        return gpd.read_file(io.BytesIO(content), bbox=bbox)
+    preview = content[:240].decode("utf-8", errors="replace").replace("\\n", " ")
+    raise RuntimeError(f"{label}: unsupported response format ({content_type}); body starts: {preview}")
+
+def read_caba_resource(resource_id, bbox, label):
+    """Resolve a CKAN resource URL and use resilient direct decoding."""
+    metadata_url = f"https://data.buenosaires.gob.ar/api/3/action/resource_show?id={resource_id}"
+    metadata = request_with_retries(metadata_url, f"{label} CKAN metadata", timeout=60).json()
     if not metadata.get("success") or not metadata.get("result", {}).get("url"):
-        raise RuntimeError(f"BA Data CKAN did not return a download URL for {label}: {metadata}")
+        raise RuntimeError(f"BA Data CKAN did not return a download URL for {label}")
     download_url = metadata["result"]["url"]
     print(f"Resolved official {label} resource: {download_url}")
-    try:
-        layer = gpd.read_file(download_url, bbox=bbox)
-    except Exception as exc:
-        # Some CKAN resources are served as GeoJSON text behind a redirect that
-        # GDAL cannot identify. Download and parse the actual response instead.
-        data_response = requests.get(download_url, timeout=180, headers={"User-Agent": "BuenosAiresPerfecta/1.0"})
-        data_response.raise_for_status()
-        content_type = data_response.headers.get("content-type", "")
-        body = data_response.content
-        if not (body.lstrip().startswith(b"{") or body.lstrip().startswith(b"[") or "json" in content_type.lower()):
-            raise RuntimeError(f"Official {label} download is not GeoJSON/JSON (HTTP {data_response.status_code}, {content_type}): {exc}")
-        import io
-        layer = gpd.read_file(io.BytesIO(body), bbox=bbox)
-    print(f"Loaded official {label}: {len(layer)} features")
-    return layer
+    return read_city_layer(download_url, bbox, label)
 
+def read_tejido_urbano(bbox):
+    """Discover all published Tejido Urbano formats and try SHP/GeoJSON in order."""
+    package_url = "https://data.buenosaires.gob.ar/api/3/action/package_show?id=tejido-urbano"
+    errors = []
+    candidates = []
+    try:
+        package = request_with_retries(package_url, "Tejido Urbano package metadata", timeout=60).json()
+        if package.get("success"):
+            resources = package.get("result", {}).get("resources", [])
+            resources = sorted(resources, key=lambda r: (0 if str(r.get("format", "")).lower() in ("shp", "zip") else 1 if "geojson" in str(r.get("format", "")).lower() or "json" in str(r.get("format", "")).lower() else 2))
+            for resource in resources:
+                fmt = str(resource.get("format", "")).lower()
+                name = str(resource.get("name", ""))
+                if fmt in ("shp", "zip", "geojson", "json") or "tejido" in name.lower():
+                    if resource.get("url"): candidates.append((resource["url"], name or fmt))
+    except Exception as exc:
+        errors.append(f"CKAN package discovery: {exc}")
+    if not candidates:
+        candidates.append(("https://data.buenosaires.gob.ar/api/3/action/resource_show?id=9d950b8c-d8cd-4dde-9987-9565313974c8", "known GeoJSON resource metadata"))
+    for url, name in candidates:
+        try:
+            if url.endswith("9d950b8c-d8cd-4dde-9987-9565313974c8") or "resource_show?id=" in url:
+                meta = request_with_retries(url, "Tejido Urbano resource metadata", timeout=60).json()
+                url = meta.get("result", {}).get("url")
+                if not url: raise RuntimeError("CKAN resource metadata has no download URL")
+            print(f"Trying official Tejido Urbano format: {name} ({url})")
+            layer = read_city_layer(url, bbox, f"Tejido Urbano {name}")
+            if layer.empty: raise RuntimeError("official layer returned no features in the requested bbox")
+            return layer
+        except Exception as exc:
+            errors.append(f"{name}: {exc}")
+            print(f"Tejido Urbano candidate failed: {name}: {exc}")
+    raise RuntimeError("All official Tejido Urbano formats failed: " + " | ".join(errors))
 
 def number(value):
     if value is None: return None
@@ -88,7 +140,7 @@ def load_official_layer():
     """Load the City's 3D building-volume layer, clipped to the playable area."""
     west, south, east, north = (BBOX[k] for k in ("west", "south", "east", "north"))
     try:
-        layer = read_caba_resource("9d950b8c-d8cd-4dde-9987-9565313974c8", (west, south, east, north), "Tejido Urbano")
+        layer = read_tejido_urbano((west, south, east, north))
         if layer.crs is None:
             layer = layer.set_crs("EPSG:4326")
         elif layer.crs.to_epsg() != 4326:
@@ -159,6 +211,8 @@ def covered_by_official(geom, official_layer):
 def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     official_layer, height_fields, floor_fields = load_official_layer()
+    if official_layer is None:
+        raise SystemExit("Official CABA Tejido Urbano is unavailable; stopping before OSM downloads.")
     # Query the base map and commercial places separately. A single large
     # Overpass query is prone to 502 responses when public instances are busy.
     base_tags = {

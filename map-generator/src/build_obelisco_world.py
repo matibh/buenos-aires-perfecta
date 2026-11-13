@@ -601,6 +601,7 @@ def main():
             "facade": "#a9c7d3",
             "trim": "#e9e7df",
             "window_frame": "#24292d",
+            "balcony": "yes",
             "source": "https://www.modernabuenosaires.org/obras/20s-a-70s/edificio-av-corrientes-1205",
         },
         {
@@ -611,6 +612,7 @@ def main():
             "facade": "#c9c0b2",
             "trim": "#e8dfd2",
             "window_frame": "#3d3935",
+            "balcony": "yes",
             "source": "https://www.clarin.com/ciudades/edificio-avenida-corrientes-cupulas-gemelas-vacio-hace-20-anos-historias-vivieron_0_o9D6qHXmcw.amp.html",
         },
     ]
@@ -645,6 +647,7 @@ def main():
                 feature["facadeHex"] = reference["facade"]
                 feature["facadeHexSecondary"] = reference["trim"]
                 feature["windowFrameHex"] = reference["window_frame"]
+                feature["balconyTag"] = reference.get("balcony", "")
                 matched += 1
             architectural_reference_matches += 1
             print(f"Applied documented architectural profile: {reference['name']} · parcel {matched_smp} · volumes={matched}", flush=True)
@@ -846,6 +849,16 @@ def main():
             feature["parcelId"] = profiles[0]["parcel"]
             feature["frontageClass"] = profiles[0]["class"]
             feature["frontageUpdated"] = profiles[0]["updated"]
+            if feature.get("architectureProfile") == "corrientes-1252-1264-twin-domes":
+                try:
+                    building_polygon = Polygon(feature["polygons"][0])
+                    frontage_distance = min(
+                        building_polygon.distance(LineString(line))
+                        for line in feature.get("facadeLines", [])
+                    )
+                    feature["architecturalFloors"] = 7 if frontage_distance <= 0.00012 else 5
+                except Exception:
+                    feature["architecturalFloors"] = 7
             frontage_building_matches += 1
         print(
             f"Measured cadastral frontage edges attached to buildings: {frontage_building_matches}; "

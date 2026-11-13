@@ -27,6 +27,7 @@ type GeoFeature = {
   parcelId?: string;
   frontageClass?: string;
   frontageUpdated?: string;
+  storefrontCount?: number;
   balconyTag?: string;
   architectureProfile?: string;
   architectureReference?: string;
@@ -301,14 +302,14 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
         : f.facadeLine && f.facadeLine.length >= 2
           ? [f.facadeLine.map(([lon,lat]) => local(lon,lat,data.origin))] : null;
       const measuredFrontage = measuredFrontages?.[0] || null;
-      if (f.architectureProfile === 'corrientes-1252-1264-twin-domes' && measuredFrontage && measuredFrontage.length >= 2) {
+      if (f.architectureProfile === 'corrientes-1252-1264-twin-domes' && Number(f.architecturalFloors) === 7 && measuredFrontage && measuredFrontage.length >= 2) {
         const parcelKey = f.smp || f.architectureProfile;
         if (!renderedDomeParcels.has(parcelKey)) {
           renderedDomeParcels.add(parcelKey);
           const first = measuredFrontage[0], last = measuredFrontage[measuredFrontage.length-1];
           for (const t of [.08,.92]) {
             const x=first.x+(last.x-first.x)*t,z=first.z+(last.z-first.z)*t;
-            chunk.domes.push({x,y:height+.65,z,radius:2.15});
+            chunk.domes.push({x,y:height+.31,z,radius:2.15});
           }
         }
       }
@@ -319,8 +320,15 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
         if (len > 2) facadeEdges.push({a,b,height});
         if(len>=7) {
           const angle=Math.atan2(-dz,dx), nx=Math.sin(angle), nz=Math.cos(angle);
-          const wx=(a.x+b.x)/2, wz=(a.z+b.z)/2;
-          chunk.storefronts.push({x:wx+nx*.11,y:1.45,z:wz+nz*.11,rotation:angle,sx:Math.min(len*.62,8.5),sy:2.35,sz:.075});
+          const shopCount=f.architectureProfile === 'corrientes-1252-1264-twin-domes' ? 4 : 1;
+          for(let shop=0;shop<shopCount;shop++){
+            const t=(shop+.5)/shopCount,wx=a.x+dx*t,wz=a.z+dz*t;
+            const shopWidth=shopCount===1?Math.min(len*.62,8.5):Math.max(1.2,len/shopCount-.28);
+            chunk.storefronts.push({x:wx+nx*.11,y:1.45,z:wz+nz*.11,rotation:angle,sx:shopWidth,sy:2.35,sz:.075});
+            if(shopCount>1 && shop>0){
+              chunk.pilasters.push({x:a.x+dx*(shop/shopCount)+nx*.14,y:1.55,z:a.z+dz*(shop/shopCount)+nz*.14,rotation:angle,sx:.14,sy:2.9,sz:.2});
+            }
+          }
         }
         if(len<5) continue;
         const count=Math.max(1,Math.floor(len/4.8));
@@ -341,7 +349,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
               if (trimBucket) trimBucket.push(frame);
               else chunk.sampledFrames.set(trimHex,[frame]);
             } else {
-              chunk.frames.push({x,y,z,rotation:angle,sx:1.19,sy:1.46,sz:.04});
+              chunk.frames.push({x,y,z,rotation:angle,sx:windowWidth*1.13,sy:windowHeight*1.1,sz:.04});
             }
             if(f.balconyTag && /^(yes|true|balcony|balcon)$/i.test(f.balconyTag) &&
               (f.architectureProfile === 'corrientes-1205-aslan-ezcurra' || f.architectureProfile === 'corrientes-1252-1264-twin-domes' || bay % 2 === 0) && len >= 10) {
@@ -383,13 +391,25 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const domeGeometry=new THREE.SphereGeometry(1,18,10,0,Math.PI*2,0,Math.PI/2);
       const domeMaterial=new THREE.MeshStandardMaterial({color:0x82776a,roughness:.72,metalness:.16});
       const domeMesh=new THREE.InstancedMesh(domeGeometry,domeMaterial,chunk.domes.length);
+      const domeBaseGeometry=new THREE.CylinderGeometry(2.08,2.34,.32,20);
+      const domeBaseMaterial=new THREE.MeshStandardMaterial({color:0xb8ad9d,roughness:.84});
+      const domeBaseMesh=new THREE.InstancedMesh(domeBaseGeometry,domeBaseMaterial,chunk.domes.length);
+      const domeFinialGeometry=new THREE.SphereGeometry(.22,10,8);
+      const domeFinialMaterial=new THREE.MeshStandardMaterial({color:0x75695c,metalness:.28,roughness:.55});
+      const domeFinialMesh=new THREE.InstancedMesh(domeFinialGeometry,domeFinialMaterial,chunk.domes.length);
       const domeDummy=new THREE.Object3D();
       chunk.domes.forEach((dome,index)=>{
         domeDummy.position.set(dome.x,dome.y,dome.z);
         domeDummy.scale.set(dome.radius,dome.radius*.72,dome.radius);
         domeDummy.updateMatrix();domeMesh.setMatrixAt(index,domeDummy.matrix);
+        domeDummy.position.set(dome.x,dome.y-.16,dome.z);
+        domeDummy.scale.set(1,1,1);
+        domeDummy.updateMatrix();domeBaseMesh.setMatrixAt(index,domeDummy.matrix);
+        domeDummy.position.set(dome.x,dome.y+1.58,dome.z);
+        domeDummy.scale.set(1,1,1);
+        domeDummy.updateMatrix();domeFinialMesh.setMatrixAt(index,domeDummy.matrix);
       });
-      domeMesh.instanceMatrix.needsUpdate=true;chunk.detail.add(domeMesh);
+      domeMesh.instanceMatrix.needsUpdate=true;domeBaseMesh.instanceMatrix.needsUpdate=true;domeFinialMesh.instanceMatrix.needsUpdate=true;chunk.detail.add(domeBaseMesh,domeMesh,domeFinialMesh);
     }
     addInstancedBoxes(chunk.geometryGroup,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0x77766f,roughness:.9}),chunk.rooftopUnits);
     group.add(chunk.group);

@@ -10,3 +10,6 @@
 
 .top-actions{display:flex;align-items:center;gap:18px;pointer-events:auto}.level-switch{display:flex;gap:6px;padding:4px;border:1px solid rgba(255,255,255,.22);background:rgba(20,30,31,.65);backdrop-filter:blur(12px);border-radius:4px}.level-button{border:0;background:transparent;color:rgba(255,255,255,.72);padding:9px 12px;font:700 9px 'DM Sans';letter-spacing:1.1px;cursor:pointer}.level-button.active{background:rgba(241,213,164,.18);color:#f1d5a4}.level-button:disabled{opacity:.55;cursor:wait}
 @media(max-width:760px){.top-actions{gap:8px;align-items:flex-end;flex-direction:column}.level-switch{gap:2px}.level-button{padding:8px 9px;font-size:8px}.location{font-size:7px}}
+
+.map-attribution{position:absolute;right:16px;bottom:104px;font-size:8px;letter-spacing:.25px;color:rgba(255,255,255,.72);text-shadow:0 1px 5px #000;text-align:right;pointer-events:none}
+@media(max-width:650px){.map-attribution{right:12px;bottom:94px;font-size:7px;max-width:58vw}}

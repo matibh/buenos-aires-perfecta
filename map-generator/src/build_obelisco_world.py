@@ -1,6 +1,6 @@
 """Build an attributed 3D city dataset around the Buenos Aires Obelisk."""
 from __future__ import annotations
-import json, re
+import json, re, time
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
@@ -103,18 +103,49 @@ def covered_by_official(geom, official_layer):
 def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     official_layer, height_fields, floor_fields = load_official_layer()
-    tags = {
+    # Query the base map and commercial places separately. A single large
+    # Overpass query is prone to 502 responses when public instances are busy.
+    base_tags = {
         "building": True,
         "highway": True,
         "leisure": ["park", "garden", "playground"],
         "landuse": ["grass", "forest", "recreation_ground"],
         "natural": ["tree", "wood"],
-        "shop": True, "amenity": True, "office": True, "tourism": True,
-        "craft": True, "healthcare": True,
+    }
+    place_tags = {
+        "shop": True, "amenity": True, "office": True,
+        "tourism": True, "craft": True, "healthcare": True,
     }
     west, south, east, north = (BBOX[k] for k in ("west", "south", "east", "north"))
-    gdf = ox.features_from_bbox((west, south, east, north), tags=tags)
-    gdf = gdf[gdf.geometry.notna()].copy()
+    overpass_servers = [
+        "https://overpass-api.de/api",
+        "https://overpass.kumi.systems/api",
+        "https://overpass.private.coffee/api",
+    ]
+
+    def fetch_osm_group(group_name, group_tags):
+        last_error = None
+        for attempt in range(6):
+            server = overpass_servers[attempt % len(overpass_servers)]
+            ox.settings.overpass_url = server
+            try:
+                print(f"Downloading OSM {group_name} features via {server} (attempt {attempt + 1}/6)")
+                result = ox.features_from_bbox((west, south, east, north), tags=group_tags)
+                print(f"Downloaded {len(result)} OSM {group_name} features.")
+                return result
+            except Exception as exc:
+                last_error = exc
+                delay = min(8 * (2 ** (attempt // len(overpass_servers))), 60)
+                print(f"OSM {group_name} query failed via {server}: {exc}. Retrying in {delay}s.")
+                if attempt < 5:
+                    time.sleep(delay)
+        raise RuntimeError(f"Unable to download OSM {group_name} features after retries and server fallback: {last_error}")
+
+    base_gdf = fetch_osm_group("base map", base_tags)
+    places_gdf = fetch_osm_group("commercial places", place_tags)
+    gdf = pd.concat([base_gdf, places_gdf], axis=0)
+    gdf = gdf[~gdf.index.duplicated(keep="first")]
+    gdf = gpd.GeoDataFrame(gdf, geometry="geometry", crs=base_gdf.crs)
 
     def row_tags(row):
         result = {}

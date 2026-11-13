@@ -157,13 +157,13 @@ def load_official_layer():
         elif layer.crs.to_epsg() != 4326:
             layer = layer.to_crs("EPSG:4326")
         layer = layer[layer.geometry.notna()].copy()
-        height_priority = ["alt_2017", "EXTR_2017", "alt_extr", "alt_2013", "alt_ant", "ANT_2017"]
+        height_priority = ["altura", "alt_2017", "EXTR_2017", "alt_extr", "alt_2013", "alt_ant", "ANT_2017"]
         height_fields = [c for c in height_priority if c in layer.columns]
         floor_fields = [c for c in ["piso_2017", "altos", "piso_2013"] if c in layer.columns]
         if "flagtipo" in layer.columns:
             layer = layer[layer["flagtipo"].astype(str).str.upper().str.strip() == "E"].copy()
         print(f"CABA Tejido Urbano: {len(layer)} edified volumes; height fields={height_fields}; floor fields={floor_fields}")
-        for field in floor_fields:
+        for field in height_fields + floor_fields:
             values = layer[field].dropna().astype(str).str.strip()
             print(f"Official field diagnostic {field}: non-null={len(values)}; sample values={values.value_counts().head(15).to_dict()}", flush=True)
         print(f"Official schema fields: {[str(c) for c in layer.columns if c != 'geometry']}", flush=True)

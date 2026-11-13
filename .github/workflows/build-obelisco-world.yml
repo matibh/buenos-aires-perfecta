@@ -44,7 +44,7 @@ jobs:
       - name: Install GIS dependencies
         run: python -m pip install -r map-generator/requirements.txt
       - name: Generate real Obelisco map data
-        timeout-minutes: 15
+        timeout-minutes: 25
         env:
           PYTHONUNBUFFERED: "1"
         run: |

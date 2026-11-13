@@ -62,7 +62,7 @@ jobs:
           python -u map-generator/src/build_obelisco_world.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/data/obelisco-world.json
+          git add public/data
           if ! git diff --cached --quiet; then
             git commit -m "Refresh generated Obelisco world data [skip ci]"
             # The generated map is the only file in this bot commit. If another run

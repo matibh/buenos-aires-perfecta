@@ -1,6 +1,6 @@
 """Build an attributed 3D city dataset around the Buenos Aires Obelisk."""
 from __future__ import annotations
-import io, json, re, time, tempfile, zipfile, hashlib
+import io, json, re, time, tempfile, zipfile, hashlib, shutil
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
@@ -583,12 +583,116 @@ def main():
         except Exception as exc:
             print(f"Could not resolve verified pizzeria address {business_name}: {exc}")
 
+
+    # Official USIG facade photos, matched through cadastral frontage SMP identifiers.
+    facade_photo_count = 0
+    facade_photo_dir = ROOT / "public" / "data" / "facade-photos"
+    facade_cache_dir = CACHE_DIR / "facade-photos"
+    facade_photo_dir.mkdir(parents=True, exist_ok=True)
+    facade_cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        frontage_meta = request_with_retries(
+            "https://data.buenosaires.gob.ar/api/3/action/resource_show?id=juqdkmgo-1564-resource",
+            "Official cadastral frontages metadata", timeout=60
+        ).json()
+        if not frontage_meta.get("success"):
+            raise RuntimeError("CKAN did not return the official frontage resource")
+        frontage_url = frontage_meta["result"]["url"]
+        frontage_cache = CACHE_DIR / "official-frontages.zip"
+        if not frontage_cache.exists() or frontage_cache.stat().st_size < 1000:
+            response = request_with_retries(frontage_url, "Official cadastral frontages", timeout=180, stream=True)
+            with frontage_cache.open("wb") as stream:
+                for chunk in response.iter_content(1024 * 1024):
+                    if chunk: stream.write(chunk)
+        with zipfile.ZipFile(frontage_cache) as archive:
+            shp_members = [name for name in archive.namelist() if name.lower().endswith(".shp")]
+        if not shp_members: raise RuntimeError("Official frontage archive contains no SHP")
+        frontage_member = sorted(shp_members, key=lambda name: (name.count("/"), len(name)))[0]
+        frontages = gpd.read_file(f"/vsizip/{frontage_cache}/{frontage_member}")
+        if frontages.crs is None: raise RuntimeError("Official frontage layer has no CRS")
+        frontages = frontages.to_crs("EPSG:4326").cx[west:east, south:north].copy()
+        if frontages.empty: raise RuntimeError("No official frontage features inside the Obelisco bounds")
+        smp_field = next((field for field in frontages.columns if str(field).lower() == "smp"), None)
+        if not smp_field: raise RuntimeError(f"Official frontage layer has no SMP field: {list(frontages.columns)}")
+        frontage_field = next((field for field in frontages.columns if str(field).lower() == "frente"), None)
+        business_points = [Point(f["point"][0],f["point"][1]) for f in features if f.get("type")=="business" and f.get("point")]
+        business_points_m = gpd.GeoSeries(business_points,crs="EPSG:4326").to_crs("EPSG:3857") if business_points else gpd.GeoSeries([],crs="EPSG:3857")
+        frontages_m = frontages.to_crs("EPSG:3857")
+        candidates=[]
+        for position,(_,frontage) in enumerate(frontages.iterrows()):
+            smp=str(frontage.get(smp_field) or "").strip()
+            geom=frontage.geometry
+            if not smp or not re.fullmatch(r"\d{2}-\d{3}[A-Z]?-[A-Z0-9]{3,4}",smp) or geom is None or geom.is_empty: continue
+            projected=frontages_m.geometry.iloc[position]
+            if projected.length<3: continue
+            nearest_business=min((projected.distance(point) for point in business_points_m),default=9999)
+            street=str(frontage.get(frontage_field) or "").upper() if frontage_field else ""
+            priority=0 if nearest_business<=18 else 1 if any(name in street for name in ("CORRIENTES","LAVALLE","PELLEGRINI","CERRITO","LIBERTAD","TALCAHUANO")) else 2
+            center_distance=geom.centroid.distance(Point(ORIGIN["lon"],ORIGIN["lat"]))
+            candidates.append((priority,nearest_business,center_distance,smp,geom))
+        selected=[]; seen_smp=set()
+        for item in sorted(candidates,key=lambda item:(item[0],item[1],item[2])):
+            if item[3] in seen_smp: continue
+            seen_smp.add(item[3]); selected.append(item)
+            if len(selected)>=48: break
+        print(f"Official frontage photo candidates selected: {len(selected)}",flush=True)
+        for _,_,_,smp,frontage_geom in selected:
+            safe_smp=re.sub(r"[^A-Za-z0-9_-]","_",smp)
+            cached_photo=facade_cache_dir/f"{safe_smp}.jpg"
+            public_photo=facade_photo_dir/f"{safe_smp}.jpg"
+            photo_date=""
+            if not cached_photo.exists() or cached_photo.stat().st_size<1000:
+                try:
+                    metadata_response=requests.get("https://fotos.usig.buenosaires.gob.ar/getDatosFotos",
+                        params={"smp":smp,"callback":"callback"},timeout=(10,25),
+                        headers={"User-Agent":"BuenosAiresPerfecta/1.0"})
+                    metadata_response.raise_for_status()
+                    raw=metadata_response.text.strip()
+                    if raw.startswith("callback(") and raw.endswith(")"): raw=raw[len("callback("):-1]
+                    photo_records=json.loads(raw)
+                    if not isinstance(photo_records,list) or not photo_records: continue
+                    photo_date=str(photo_records[0].get("fecha") or "")
+                    image_response=requests.get("https://fotos.usig.buenosaires.gob.ar/getFoto",
+                        params={"smp":smp,"i":0,"w":640,"h":800},timeout=(10,35),
+                        headers={"User-Agent":"BuenosAiresPerfecta/1.0"})
+                    image_response.raise_for_status()
+                    image_bytes=image_response.content
+                    if not (image_bytes.startswith(b"\xff\xd8") or image_bytes.startswith(b"\x89PNG\r\n\x1a\n")):
+                        print(f"USIG returned non-image response for SMP {smp}; skipping.",flush=True); continue
+                    cached_photo.write_bytes(image_bytes)
+                except Exception as exc:
+                    print(f"USIG facade photo unavailable for SMP {smp}: {exc}",flush=True); continue
+            else: photo_date="USIG archive (cached)"
+            shutil.copy2(cached_photo,public_photo)
+            line_coords=[[round(float(x),7),round(float(y),7)] for x,y in frontage_geom.coords] if frontage_geom.geom_type=="LineString" else []
+            if len(line_coords)<2: continue
+            nearest_height=9.5
+            try:
+                nearest_indexes=official_layer.sindex.nearest(frontage_geom,return_all=False)
+                if nearest_indexes.shape[1]:
+                    nearest_row=official_layer.iloc[int(nearest_indexes[1][0])]
+                    measured=official_height(nearest_row,height_fields,floor_fields)
+                    if measured: nearest_height=measured[0]
+            except Exception: pass
+            features.append({"type":"facadePhoto","line":line_coords,"height":max(4,min(float(nearest_height),45)),
+                "image":f"data/facade-photos/{safe_smp}.jpg","photoDate":photo_date,"smp":smp,
+                "source":"Buenos Aires Ciudad · USIG · Fotografía de fachada"})
+            facade_photo_count+=1
+            time.sleep(0.12)
+        counts["facade_photos"]=facade_photo_count
+        print(f"USIG facade photos added: {facade_photo_count}",flush=True)
+    except Exception as exc:
+        counts["facade_photos"]=facade_photo_count
+        print(f"WARNING: USIG facade photo enrichment unavailable; keeping the verified base map: {exc}",flush=True)
+
     sources = [{"name":"OpenStreetMap contributors","license":"ODbL 1.0","attribution":"© OpenStreetMap contributors"}]
     if counts["official_height_matches"]:
         sources.append({"name":"Buenos Aires Ciudad · Tejido Urbano","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · restitución de volúmenes 2013/2017","url":"https://data.buenosaires.gob.ar/es/dataset/tejido-urbano"})
     if counts.get("official_green_polygons", 0) or counts.get("official_plaza_polygons", 0):
         sources.append({"name":"Buenos Aires Ciudad · Espacios Verdes Públicos","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad","url":"https://data.buenosaires.gob.ar/dataset/espacios-verdes"})
     sources.append({"name":"Buenos Aires Ciudad · Callejero","license":"CC-BY-4.0","attribution":"Buenos Aires Ciudad","url":"https://data.buenosaires.gob.ar/dataset/calles"})
+    if facade_photo_count:
+        sources.append({"name":"Buenos Aires Ciudad · USIG · Fotografías de fachada","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · USIG","url":"https://servicios.usig.buenosaires.gob.ar/"})
     payload = {
         "source":"Buenos Aires Ciudad · Tejido Urbano, Espacios Verdes Públicos, Callejero + OpenStreetMap contributors",
         "sources":sources,

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 type GeoFeature = {
-  type: 'building' | 'road' | 'green' | 'plaza' | 'tree' | 'business';
+  type: 'building' | 'road' | 'green' | 'plaza' | 'tree' | 'business' | 'facadePhoto';
   polygons?: number[][][];
   line?: number[][];
   point?: number[];
@@ -30,6 +30,9 @@ type GeoFeature = {
   address?: string;
   website?: string;
   isPizzeria?: boolean;
+  image?: string;
+  photoDate?: string;
+  smp?: string;
 };
 export type ObeliscoWorldData = { origin: { lon: number; lat: number }; features: GeoFeature[]; counts: Record<string, number> };
 export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: number; height: number };
@@ -392,6 +395,64 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const plainAwning=new THREE.MeshStandardMaterial({color:0x334b50,roughness:.9});
   addInstancedBoxes(group,awningGeometry,stripedAwning,awningDark);
   addInstancedBoxes(group,awningGeometry,plainAwning,awnings);
+
+
+  // USIG facade photos are packed into one atlas and one mesh to preserve high FPS.
+  const facadePhotoFeatures=data.features.filter(feature=>feature.type==='facadePhoto'&&feature.image&&feature.line&&feature.line.length>=2);
+  if(facadePhotoFeatures.length){
+    const loadedPhotos=await Promise.all(facadePhotoFeatures.map(feature=>new Promise<{feature:GeoFeature;image:HTMLImageElement}|null>(resolve=>{
+      const image=new Image();
+      image.onload=()=>resolve({feature,image});
+      image.onerror=()=>resolve(null);
+      image.src=import.meta.env.BASE_URL+feature.image;
+    })));
+    const validPhotos=loadedPhotos.filter((entry):entry is {feature:GeoFeature;image:HTMLImageElement}=>entry!==null);
+    if(validPhotos.length){
+      const columns=8,cellWidth=256,cellHeight=320,rows=Math.ceil(validPhotos.length/columns);
+      const atlas=document.createElement('canvas'); atlas.width=columns*cellWidth; atlas.height=rows*cellHeight;
+      const context=atlas.getContext('2d'); const photoGeometries:THREE.BufferGeometry[]=[];
+      if(context){
+        context.fillStyle='#77736d';context.fillRect(0,0,atlas.width,atlas.height);
+        validPhotos.forEach((entry,index)=>{
+          const col=index%columns,row=Math.floor(index/columns);
+          const scale=Math.min(cellWidth/entry.image.naturalWidth,cellHeight/entry.image.naturalHeight);
+          const imageWidth=entry.image.naturalWidth*scale,imageHeight=entry.image.naturalHeight*scale;
+          context.drawImage(entry.image,col*cellWidth+(cellWidth-imageWidth)/2,row*cellHeight+(cellHeight-imageHeight)/2,imageWidth,imageHeight);
+          const line=entry.feature.line!;
+          let longest:{a:{x:number;z:number};b:{x:number;z:number};length:number}|null=null;
+          for(let i=0;i<line.length-1;i++){
+            const a=local(line[i][0],line[i][1],data.origin),b=local(line[i+1][0],line[i+1][1],data.origin);
+            const length=Math.hypot(b.x-a.x,b.z-a.z);
+            if(!longest||length>longest.length)longest={a,b,length};
+          }
+          if(!longest||longest.length<2)return;
+          const aspect=entry.image.naturalWidth/entry.image.naturalHeight;
+          const facadeHeight=Math.max(3,Math.min(entry.feature.height??9.5,45));
+          const planeHeight=Math.min(facadeHeight,longest.length/aspect),planeWidth=planeHeight*aspect;
+          const midX=(longest.a.x+longest.b.x)/2,midZ=(longest.a.z+longest.b.z)/2;
+          const dx=longest.b.x-longest.a.x,dz=longest.b.z-longest.a.z;
+          const nx=-dz/longest.length,nz=dx/longest.length,angle=Math.atan2(-dz,dx);
+          const geometry=new THREE.PlaneGeometry(planeWidth,planeHeight),uv=geometry.getAttribute('uv');
+          for(let vertex=0;vertex<uv.count;vertex++){
+            const u=uv.getX(vertex),v=uv.getY(vertex);
+            uv.setXY(vertex,(col+u)/columns,1-(row+(1-v))/rows);
+          }
+          geometry.rotateY(angle);
+          geometry.translate(midX+nx*.22,planeHeight/2,midZ+nz*.22);
+          photoGeometries.push(geometry);
+        });
+        if(photoGeometries.length){
+          const mergedPhotos=mergeGeometries(photoGeometries,false);
+          if(mergedPhotos){
+            const photoTexture=new THREE.CanvasTexture(atlas);photoTexture.colorSpace=THREE.SRGBColorSpace;photoTexture.anisotropy=4;
+            const photoMaterial=new THREE.MeshBasicMaterial({map:photoTexture,side:THREE.DoubleSide,toneMapped:false});
+            const photoMesh=new THREE.Mesh(mergedPhotos,photoMaterial);photoMesh.name='usig-real-facade-photo-atlas';photoMesh.frustumCulled=true;group.add(photoMesh);
+          }
+          photoGeometries.forEach(geometry=>geometry.dispose());
+        }
+      }
+    }
+  }
 
   // Boulevard lane dashes and pedestrian crossings: the width of 9 de Julio must read at street level.
   const laneDashes:Array<{x:number;y:number;z:number;sx:number;sy:number;sz:number}>=[];

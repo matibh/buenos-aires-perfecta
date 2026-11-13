@@ -7,7 +7,7 @@ import pandas as pd
 import requests
 import osmnx as ox
 from shapely.ops import unary_union
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, LineString
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -693,6 +693,19 @@ def main():
             return max(lines, key=lambda line: line.length) if lines else None
         return None
 
+    def frontage_lines(geom):
+        """Return all street-front segments when the cadastral source provides a multiline geometry."""
+        if geom is None or geom.is_empty:
+            return []
+        if geom.geom_type == "LineString":
+            return [geom]
+        if geom.geom_type == "MultiLineString":
+            return [line for line in geom.geoms if line.length > 0]
+        if geom.geom_type == "GeometryCollection":
+            return [line for part in geom.geoms for line in frontage_lines(part)]
+        line = longest_frontage_line(geom)
+        return [line] if line is not None else []
+
     def sample_facade_colors(image_bytes):
         """Extract stable facade-dominant colors from a centered, sky/road-trimmed crop."""
         with Image.open(io.BytesIO(image_bytes)) as source_image:
@@ -772,52 +785,77 @@ def main():
         if official_smp and not matching_smp:
             raise RuntimeError("No cadastral SMP identifiers overlap between frontage and official building-volume layers; refusing guessed photo-to-building matches")
 
-        # Attach measured cadastral frontage edges to matching official buildings.
+        # Attach every measured cadastral frontage segment to matching official buildings.
+        # MultiLineString corner parcels retain both street-facing sides.
         frontage_by_smp = {}
         frontage_widths = []
-        for _, frontage in frontages.iterrows():
+        official_projected = official_layer.to_crs("EPSG:3857")
+        official_spatial_index = official_projected.sindex
+        spatial_frontage_fallbacks = 0
+        frontages_projected = frontages.to_crs("EPSG:3857")
+        for position, (_, frontage) in enumerate(frontages.iterrows()):
             normalized = str(frontage.get("__smp_norm") or "")
-            if not normalized or (official_smp and normalized not in official_smp):
+            if not normalized or normalized not in official_smp:
+                query_geometry = frontages_projected.geometry.iloc[position]
+                try:
+                    nearest = official_spatial_index.nearest(query_geometry, return_all=False)
+                    if nearest is not None and len(nearest) == 2 and len(nearest[1]):
+                        candidate_index = int(nearest[1][0])
+                        candidate_geometry = official_projected.geometry.iloc[candidate_index]
+                        if query_geometry.distance(candidate_geometry) <= 12:
+                            normalized = normalize_smp(official_projected.iloc[candidate_index].get("smp"))
+                            if normalized:
+                                spatial_frontage_fallbacks += 1
+                except Exception as spatial_exc:
+                    print(f"Spatial frontage match skipped: {spatial_exc}", flush=True)
+            if not normalized or normalized not in official_smp:
                 continue
-            line = longest_frontage_line(frontage.geometry)
-            if line is None:
-                continue
-            projected_line = gpd.GeoSeries([line], crs="EPSG:4326").to_crs("EPSG:3857").iloc[0]
-            width_m = float(projected_line.length)
-            if width_m < 2.5:
-                continue
-            existing = frontage_by_smp.get(normalized)
-            if existing is None or width_m > existing["width"]:
-                frontage_by_smp[normalized] = {
+            for line in frontage_lines(frontage.geometry):
+                projected_line = gpd.GeoSeries([line], crs="EPSG:4326").to_crs("EPSG:3857").iloc[0]
+                width_m = float(projected_line.length)
+                if width_m < 2.5:
+                    continue
+                record = {
                     "line": ring(line.coords), "width": round(width_m, 2),
                     "number": str(frontage.get("num_dom") or "")[:24],
                     "parcel": str(frontage.get("parcela") or "")[:32],
                     "class": str(frontage.get("clase") or "")[:32],
                     "updated": str(frontage.get("fecha") or frontage.get("anio_act") or "")[:32],
                 }
-                frontage_widths.append(width_m)
+                bucket = frontage_by_smp.setdefault(normalized, [])
+                duplicate = any(
+                    len(existing["line"]) >= 2 and
+                    LineString(existing["line"]).hausdorff_distance(line) < 0.00001
+                    for existing in bucket
+                )
+                if not duplicate and len(bucket) < 4:
+                    bucket.append(record)
+                    frontage_widths.append(width_m)
         frontage_building_matches = 0
         for feature in features:
             if feature.get("type") != "building":
                 continue
-            profile = frontage_by_smp.get(normalize_smp(feature.get("smp")))
-            if not profile:
+            profiles = frontage_by_smp.get(normalize_smp(feature.get("smp")))
+            if not profiles:
                 continue
-            feature["facadeLine"] = profile["line"]
-            feature["frontageWidth"] = profile["width"]
-            feature["frontageNumber"] = profile["number"]
-            feature["parcelId"] = profile["parcel"]
-            feature["frontageClass"] = profile["class"]
-            feature["frontageUpdated"] = profile["updated"]
+            feature["facadeLines"] = [profile["line"] for profile in profiles]
+            feature["facadeLine"] = max(profiles, key=lambda profile: profile["width"])["line"]
+            feature["frontageWidths"] = [profile["width"] for profile in profiles]
+            feature["frontageWidth"] = round(sum(profile["width"] for profile in profiles), 2)
+            feature["frontageNumber"] = profiles[0]["number"]
+            feature["parcelId"] = profiles[0]["parcel"]
+            feature["frontageClass"] = profiles[0]["class"]
+            feature["frontageUpdated"] = profiles[0]["updated"]
             frontage_building_matches += 1
         print(
             f"Measured cadastral frontage edges attached to buildings: {frontage_building_matches}; "
-            f"unique parcels={len(frontage_by_smp)}; "
-            f"median frontage={round(float(pd.Series(frontage_widths).median()), 2) if frontage_widths else 0}m",
+            f"unique parcels={len(frontage_by_smp)}; spatial fallback parcels={spatial_frontage_fallbacks}; "
+            f"median frontage segment={round(float(pd.Series(frontage_widths).median()), 2) if frontage_widths else 0}m",
             flush=True
         )
         counts["measured_frontage_matches"] = frontage_building_matches
         counts["measured_frontage_parcels"] = len(frontage_by_smp)
+        counts["measured_frontage_spatial_fallbacks"] = spatial_frontage_fallbacks
 
         business_points = [
             Point(feature["point"][0], feature["point"][1])
@@ -989,6 +1027,8 @@ def main():
     sources.append({"name":"Buenos Aires Ciudad · Callejero","license":"CC-BY-4.0","attribution":"Buenos Aires Ciudad","url":"https://data.buenosaires.gob.ar/dataset/calles"})
     if facade_photo_count:
         sources.append({"name":"Buenos Aires Ciudad · USIG · Fotografías de fachada","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · USIG","url":"https://servicios.usig.buenosaires.gob.ar/"})
+    if counts.get("measured_frontage_matches", 0):
+        sources.append({"name":"Buenos Aires Ciudad · Frentes de parcelas","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · catastro parcelario","url":"https://data.buenosaires.gob.ar/"})
     if architectural_reference_matches:
         sources.append({"name":"Moderna Buenos Aires + referencias periodísticas de arquitectura","license":"Metadata and descriptive facts only","attribution":"Moderna Buenos Aires; Clarín · references linked per building"})
     payload = {

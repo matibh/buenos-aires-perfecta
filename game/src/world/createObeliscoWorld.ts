@@ -20,6 +20,8 @@ type GeoFeature = {
   facadeReferenceDate?: string;
   facadeReferenceStatus?: string;
   facadeLine?: number[][];
+  facadeLines?: number[][][];
+  frontageWidths?: number[];
   frontageWidth?: number;
   frontageNumber?: string;
   parcelId?: string;
@@ -294,8 +296,11 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const floorHeight = height / floorCount;
       const buildingKind = ((f.buildingType || '') + ' ' + (f.buildingUse || '')).toLowerCase();
       const residential = /apartments|residential|dwelling|house|flats/.test(buildingKind);
-      const measuredFrontage = f.facadeLine && f.facadeLine.length >= 2
-        ? f.facadeLine.map(([lon,lat]) => local(lon,lat,data.origin)) : null;
+      const measuredFrontages = f.facadeLines && f.facadeLines.length
+        ? f.facadeLines.map(line => line.map(([lon,lat]) => local(lon,lat,data.origin)))
+        : f.facadeLine && f.facadeLine.length >= 2
+          ? [f.facadeLine.map(([lon,lat]) => local(lon,lat,data.origin))] : null;
+      const measuredFrontage = measuredFrontages?.[0] || null;
       if (f.architectureProfile === 'corrientes-1252-1264-twin-domes' && measuredFrontage && measuredFrontage.length >= 2) {
         const parcelKey = f.smp || f.architectureProfile;
         if (!renderedDomeParcels.has(parcelKey)) {
@@ -307,7 +312,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
           }
         }
       }
-      const facadePath = measuredFrontage && measuredFrontage.length >= 2 ? measuredFrontage : pts;
+      const facadePaths = measuredFrontages && measuredFrontages.length ? measuredFrontages : [pts];
+      for(const facadePath of facadePaths) {
       for(let edge=0;edge<facadePath.length-1;edge++){
         const a=facadePath[edge],b=facadePath[edge+1],dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz);
         if (len > 2) facadeEdges.push({a,b,height});
@@ -337,7 +343,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
             } else {
               chunk.frames.push({x,y,z,rotation:angle,sx:1.19,sy:1.46,sz:.04});
             }
-            if(f.balconyTag && /^(yes|true|balcony|balcon)$/i.test(f.balconyTag) && bay % 2 === 0 && len >= 10) {
+            if(f.balconyTag && /^(yes|true|balcony|balcon)$/i.test(f.balconyTag) &&
+              (f.architectureProfile === 'corrientes-1205-aslan-ezcurra' || f.architectureProfile === 'corrientes-1252-1264-twin-domes' || bay % 2 === 0) && len >= 10) {
               chunk.balconies.push({x:wx+nx*.42,y:y-.78,z:wz+nz*.42,rotation:angle,sx:1.72,sy:.12,sz:.62});
               chunk.balconyRails.push({x:wx+nx*.72,y:y-.38,z:wz+nz*.72,rotation:angle,sx:1.68,sy:.58,sz:.045});
             }
@@ -353,6 +360,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
           chunk.pilasters.push({x:a.x+normalX*.12,y:height/2,z:a.z+normalZ*.12,rotation:angle,sx:.22,sy:height,sz:.28});
           chunk.pilasters.push({x:b.x+normalX*.12,y:height/2,z:b.z+normalZ*.12,rotation:angle,sx:.22,sy:height,sz:.28});
         }
+      }
       }
     }
   }

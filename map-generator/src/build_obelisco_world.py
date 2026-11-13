@@ -3,6 +3,7 @@ from __future__ import annotations
 import json, re
 from pathlib import Path
 import geopandas as gpd
+import pandas as pd
 import osmnx as ox
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -103,8 +104,14 @@ def main():
     counts = {"buildings": 0, "roads": 0, "green": 0, "trees": 0, "official_height_matches": 0}
     for _, row in gdf.iterrows():
         geom = row.geometry
-        tags_row = {k: row.get(k) for k in ("building","height","building:levels","levels","name","highway","leisure","landuse","natural","width","surface","amenity","shop") if row.get(k) is not None}
-        if tags_row.get("building") and geom.geom_type in ("Polygon", "MultiPolygon"):
+        tags_row = {}
+        for key in ("building","height","building:levels","levels","name","highway","leisure","landuse","natural","width","surface","amenity","shop"):
+            value = row.get(key)
+            if pd.notna(value) and not (isinstance(value, str) and not value.strip()):
+                tags_row[key] = value
+        building_tag = str(tags_row.get("building", "")).strip().lower()
+        is_building = bool(building_tag) and building_tag not in ("no", "false", "0")
+        if is_building and geom.geom_type in ("Polygon", "MultiPolygon"):
             h, source = height_for(tags_row, geom, official)
             if source.startswith("CABA Tejido Urbano"): counts["official_height_matches"] += 1
             polys = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)

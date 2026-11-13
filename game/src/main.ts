@@ -59,7 +59,7 @@ const hint = hud.querySelector<HTMLDivElement>('#hint')!;
 const locationLabel = hud.querySelector<HTMLDivElement>('#location-label')!;
 const palermoButton = hud.querySelector<HTMLButtonElement>('#level-palermo')!;
 const obeliscoButton = hud.querySelector<HTMLButtonElement>('#level-obelisco')!;
-fetch(import.meta.env.BASE_URL + 'data/obelisco-world.json').then(r => { if (!r.ok) throw new Error('OSM data not ready'); return r.json() as Promise<ObeliscoWorldData>; }).then(data => {
+fetch('data/obelisco-world.json').then(r => { if (!r.ok) throw new Error('OSM data not ready'); return r.json() as Promise<ObeliscoWorldData>; }).then(data => {
   obeliscoColliders = createObeliscoWorld(obeliscoGroup, data);
   obeliscoReady = true;
   obeliscoButton.disabled = false;

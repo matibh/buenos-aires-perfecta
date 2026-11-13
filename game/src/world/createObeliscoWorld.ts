@@ -18,6 +18,7 @@ export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: nu
 const ROAD = new THREE.MeshStandardMaterial({ color: 0x353b3d, roughness: .98, side: THREE.DoubleSide });
 const GREEN = new THREE.MeshStandardMaterial({ color: 0x6e9168, roughness: 1, side: THREE.DoubleSide });
 const BUILDING_COLORS = [0xc9c1b5,0xd4cabb,0xbeb6a8,0xd7d0c3,0xb9b1a5,0xc8b9a6,0xd9d4ca];
+const BUILDING_MATERIALS = BUILDING_COLORS.map(color => new THREE.MeshStandardMaterial({ color, roughness: .92 }));
 const WHITE = new THREE.MeshStandardMaterial({ color: 0xe9e8df, roughness: .88 });
 const DARK = new THREE.MeshStandardMaterial({ color: 0x3b3c3b, roughness: .7 });
 
@@ -53,17 +54,31 @@ function roadGeometry(points: number[][], width: number, origin: {lon:number;lat
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3)); g.setIndex(indices); g.computeVertexNormals();
   return g;
 }
+function addMerged(group: THREE.Group, geometries: THREE.BufferGeometry[], material: THREE.Material, shadows = false) {
+  if (!geometries.length) return;
+  const merged = mergeGeometries(geometries, false);
+  if (merged) {
+    const mesh = new THREE.Mesh(merged, material);
+    mesh.castShadow = shadows; mesh.receiveShadow = true; group.add(mesh);
+  }
+  geometries.forEach(g => g.dispose());
+}
 
 export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData): WorldCollider[] {
   const colliders: WorldCollider[]=[];
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(2400,1900),new THREE.MeshStandardMaterial({color:0xaaa99f,roughness:1}));
   ground.rotation.x=-Math.PI/2; ground.position.y=-.03; group.add(ground);
 
-  // Real OSM road alignments, building footprints and mapped green spaces.
+  const roads: THREE.BufferGeometry[]=[];
+  const buildings: THREE.BufferGeometry[][]=BUILDING_COLORS.map(()=>[]);
+  // Real OSM road alignments and mapped green spaces.
   for(const f of data.features){
-    if(f.type==='road' && f.line && f.line.length>1) group.add(roadStrip(f.line,f.width??9,data.origin));
+    if(f.type==='road' && f.line && f.line.length>1) roads.push(roadGeometry(f.line,f.width??9,data.origin));
     if(f.type==='green' && f.polygons) for(const poly of f.polygons) if(poly.length>=4) group.add(polygonMesh(poly,data.origin,.075,GREEN));
   }
+  addMerged(group,roads,ROAD);
+
+  // Extrude mapped building footprints and merge by a restrained facade palette.
   let buildingIndex=0;
   for(const f of data.features){
     if(f.type!=='building'||!f.polygons) continue;
@@ -77,27 +92,32 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       colliders.push({minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs),height});
     }
   }
+  buildings.forEach((geometries,index)=>addMerged(group,geometries,BUILDING_MATERIALS[index],true));
 
-  buildings.forEach((geometries,index)=>{if(!geometries.length)return;const merged=mergeGeometries(geometries,false);if(merged){const mesh=new THREE.Mesh(merged,buildingMaterials[index]);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);}geometries.forEach(g=>g.dispose());});\n\n  // The monument is modeled to its published 67.5 m height and 6.8 m square base.
+  // The monument is modeled to its published 67.5 m height and 6.8 m square base.
   const plaza=new THREE.Mesh(new THREE.CircleGeometry(18,64),new THREE.MeshStandardMaterial({color:0x858d82,roughness:1}));
   plaza.rotation.x=-Math.PI/2; plaza.position.y=.09; group.add(plaza);
   const obelisk=new THREE.Mesh(new THREE.CylinderGeometry(.2,4.81,67.5,4,1,false),WHITE);
   obelisk.rotation.y=Math.PI/4; obelisk.position.set(0,33.75,0); obelisk.castShadow=true; obelisk.receiveShadow=true; group.add(obelisk);
   const plinth=new THREE.Mesh(new THREE.BoxGeometry(7.8,.48,7.8),WHITE); plinth.position.y=.28; group.add(plinth);
   const door=new THREE.Mesh(new THREE.BoxGeometry(.95,2.15,.06),DARK); door.position.set(-3.42,1.35,0); group.add(door);
-  // Fine horizontal joints evoke the painted concrete panels without over-detailing the landmark.
   for(let y=8;y<64;y+=8){
-    const band=new THREE.Mesh(new THREE.BoxGeometry(6.8-y*.082,.035,6.8-y*.082),new THREE.MeshStandardMaterial({color:0xd8d8d0,roughness:1}));
+    const side=6.8-y*.082;
+    const band=new THREE.Mesh(new THREE.BoxGeometry(side,.035,side),new THREE.MeshStandardMaterial({color:0xd8d8d0,roughness:1}));
     band.position.y=y; group.add(band);
   }
 
-  // Mapped OSM trees are small, shared low-poly props.
+  // Mapped OSM trees are shared low-poly props rendered with instancing.
   const trunkGeo=new THREE.CylinderGeometry(.13,.18,2,6), crownGeo=new THREE.IcosahedronGeometry(1.05,1);
   const trunkMat=new THREE.MeshStandardMaterial({color:0x6d5039}), crownMat=new THREE.MeshStandardMaterial({color:0x426a49});
   const trees=data.features.filter(f=>f.type==='tree'&&f.point);
   const trunks=new THREE.InstancedMesh(trunkGeo,trunkMat,trees.length), crowns=new THREE.InstancedMesh(crownGeo,crownMat,trees.length);
   const dummy=new THREE.Object3D();
-  trees.forEach((f,i)=>{const p=local(f.point![0],f.point![1],data.origin);dummy.position.set(p.x,1,p.z);dummy.updateMatrix();trunks.setMatrixAt(i,dummy.matrix);dummy.position.y=2.45;dummy.scale.setScalar(.9);dummy.updateMatrix();crowns.setMatrixAt(i,dummy.matrix);dummy.scale.setScalar(1);});
+  trees.forEach((f,i)=>{
+    const p=local(f.point![0],f.point![1],data.origin);
+    dummy.position.set(p.x,1,p.z); dummy.scale.setScalar(1); dummy.updateMatrix(); trunks.setMatrixAt(i,dummy.matrix);
+    dummy.position.y=2.45; dummy.scale.setScalar(.9); dummy.updateMatrix(); crowns.setMatrixAt(i,dummy.matrix);
+  });
   if(trees.length){group.add(trunks,crowns);}
   return colliders;
 }

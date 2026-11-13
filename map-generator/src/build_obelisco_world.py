@@ -254,8 +254,9 @@ def main():
         sources.append({"name":"Buenos Aires Ciudad · Tejido Urbano","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · restitución de volúmenes 2013/2017","url":"https://data.buenosaires.gob.ar/es/dataset/tejido-urbano"})
     if counts.get("official_green_polygons", 0) or counts.get("official_plaza_polygons", 0):
         sources.append({"name":"Buenos Aires Ciudad · Espacios Verdes Públicos","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad","url":"https://data.buenosaires.gob.ar/dataset/espacios-verdes"})
+    sources.append({"name":"Buenos Aires Ciudad · Callejero","license":"CC-BY-4.0","attribution":"Buenos Aires Ciudad","url":"https://data.buenosaires.gob.ar/dataset/calles"})
     payload = {
-        "source":"OpenStreetMap contributors + Buenos Aires Ciudad Tejido Urbano",
+        "source":"Buenos Aires Ciudad · Tejido Urbano, Espacios Verdes Públicos, Callejero + OpenStreetMap contributors",
         "sources":sources,
         "license":"ODbL 1.0 + CC-BY-2.5-AR" if counts["official_height_matches"] or counts.get("official_green_polygons", 0) else "ODbL 1.0",
         "attribution":"© OpenStreetMap contributors" + (" · Buenos Aires Ciudad" if counts["official_height_matches"] or counts.get("official_green_polygons", 0) else ""),

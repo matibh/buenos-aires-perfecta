@@ -222,9 +222,11 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
 
   // Real mapped business names become modest facade-mounted signs. The label text
   // comes from the mapped venue name; no invented shop brands are generated.
-  const signMaterials: THREE.Material[] = [];
-  for (const feature of data.features) {
-    if (feature.type !== 'business' || !feature.point || !feature.name?.trim()) continue;
+  const signFeatures = data.features
+    .filter(feature => feature.type === 'business' && feature.point && feature.name?.trim())
+    .sort((a,b) => Number(b.isPizzeria === true) - Number(a.isPizzeria === true))
+    .slice(0,240);
+  for (const feature of signFeatures) {
     const point = local(feature.point[0], feature.point[1], data.origin);
     let best: {distance:number;x:number;z:number;angle:number;height:number} | null = null;
     for (const edge of facadeEdges) {
@@ -238,30 +240,29 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     }
     if (!best || best.distance > 18) continue;
     const canvas = document.createElement('canvas');
-    canvas.width = 512; canvas.height = 128;
+    canvas.width = 384; canvas.height = 96;
     const ctx = canvas.getContext('2d');
     if (!ctx) continue;
     const pizza = feature.isPizzeria === true;
     ctx.fillStyle = pizza ? '#9b2e25' : '#20282b';
-    ctx.fillRect(0,0,512,128);
+    ctx.fillRect(0,0,384,96);
     ctx.fillStyle = pizza ? '#fff2d7' : '#f1eadc';
-    ctx.fillRect(8,8,496,112);
+    ctx.fillRect(6,6,372,84);
     ctx.fillStyle = pizza ? '#9b2e25' : '#20282b';
-    ctx.fillRect(14,14,484,100);
+    ctx.fillRect(11,11,362,74);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    let fontSize = 54;
+    let fontSize = 40;
     do {
       ctx.font = `bold ${fontSize}px Arial`;
       fontSize -= 2;
-    } while (ctx.measureText(feature.name).width > 450 && fontSize > 20);
+    } while (ctx.measureText(feature.name).width > 330 && fontSize > 20);
     ctx.fillStyle = '#fff5e5';
-    ctx.fillText(feature.name.slice(0,38),256,64,460);
+    ctx.fillText(feature.name.slice(0,38),192,48,340);
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     const material = new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide});
-    signMaterials.push(material);
     const width = THREE.MathUtils.clamp(feature.name.length * .19, 2.1, 5.2);
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(width,.92),material);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(width,.72),material);
     sign.position.set(best.x,best.height > 5 ? 3.55 : 2.8,best.z);
     sign.rotation.y = best.angle;
     sign.position.x += Math.sin(best.angle)*.13;

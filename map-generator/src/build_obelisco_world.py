@@ -21,7 +21,7 @@ ox.settings.timeout = 45
 ox.settings.requests_timeout = 45
 ox.settings.overpass_rate_limit = True
 
-def request_with_retries(url, label, timeout=180):
+def request_with_retries(url, label, timeout=180, stream=False):
     """GET with bounded retries for transient BA Data/CDN failures."""
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
@@ -32,15 +32,30 @@ def request_with_retries(url, label, timeout=180):
     session.mount("https://", HTTPAdapter(max_retries=retry))
     bounded_timeout = (10, min(timeout, 35)) if isinstance(timeout, (int, float)) else timeout
     print(f"{label}: requesting {url}", flush=True)
-    response = session.get(url, timeout=bounded_timeout, headers={"User-Agent": "BuenosAiresPerfecta/1.0 (open-data game project)"})
+    response = session.get(url, timeout=bounded_timeout, stream=stream, headers={"User-Agent": "BuenosAiresPerfecta/1.0 (open-data game project)"})
     response.raise_for_status()
-    print(f"{label}: HTTP {response.status_code}, {len(response.content)} bytes")
+    if not stream:
+        print(f"{label}: HTTP {response.status_code}, {len(response.content)} bytes", flush=True)
+    else:
+        print(f"{label}: HTTP {response.status_code}; streaming download", flush=True)
     return response
 
 def read_city_layer(url, bbox, label):
     """Download and decode CABA open-data resources explicitly (GeoJSON or zipped GIS)."""
-    response = request_with_retries(url, label)
-    content = response.content
+    response = request_with_retries(url, label, stream=True)
+    chunks = []
+    downloaded = 0
+    last_report = 0
+    for chunk in response.iter_content(chunk_size=1024 * 1024):
+        if not chunk:
+            continue
+        chunks.append(chunk)
+        downloaded += len(chunk)
+        if downloaded - last_report >= 8 * 1024 * 1024:
+            print(f"{label}: downloaded {downloaded / (1024 * 1024):.0f} MiB", flush=True)
+            last_report = downloaded
+    content = b"".join(chunks)
+    print(f"{label}: download complete ({downloaded / (1024 * 1024):.1f} MiB)", flush=True)
     content_type = response.headers.get("Content-Type", "").lower()
     if not content:
         raise RuntimeError(f"{label}: empty download")

@@ -8,8 +8,8 @@ if (!root) throw new Error('No #app root');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color('#aebfc0');
-scene.fog = new THREE.Fog('#aebfc0', 75, 210);
-const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 500);
+scene.fog = new THREE.Fog('#aebfc0', 420, 1450);
+const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.1, 2200);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.8));
 renderer.setSize(innerWidth, innerHeight);
@@ -49,6 +49,7 @@ hud.innerHTML = `
     <div class="mode" id="mode">A PIE</div>
   </div>
   <div class="hint" id="hint">Click para capturar el mouse · ESC para liberar</div>
+  <div class="map-attribution" id="map-attribution"></div>
 `;
 root.appendChild(hud);
 
@@ -59,6 +60,7 @@ const hint = hud.querySelector<HTMLDivElement>('#hint')!;
 const locationLabel = hud.querySelector<HTMLDivElement>('#location-label')!;
 const palermoButton = hud.querySelector<HTMLButtonElement>('#level-palermo')!;
 const obeliscoButton = hud.querySelector<HTMLButtonElement>('#level-obelisco')!;
+const mapAttribution = hud.querySelector<HTMLDivElement>('#map-attribution')!;
 fetch('data/obelisco-world.json').then(r => { if (!r.ok) throw new Error('OSM data not ready'); return r.json() as Promise<ObeliscoWorldData>; }).then(data => {
   obeliscoColliders = createObeliscoWorld(obeliscoGroup, data);
   obeliscoReady = true;
@@ -78,12 +80,13 @@ function switchLevel(level: 'palermo' | 'obelisco') {
   palermoGroup.visible = level === 'palermo';
   obeliscoGroup.visible = level === 'obelisco';
   colliders = level === 'palermo' ? createPrototypeWorldColliders : obeliscoColliders;
-  player.set(0, eyeHeight, level === 'palermo' ? 29 : 48);
+  player.set(0, eyeHeight, level === 'palermo' ? 29 : 24);
   velocity.set(0, 0, 0); grounded = true; flying = false; yaw = 0; pitch = 0;
   modeLabel.textContent = 'A PIE'; modeLabel.classList.remove('flying');
   locationLabel.innerHTML = '<span class="live-dot"></span> ' + (level === 'palermo' ? 'PALERMO SOHO' : 'OBELISCO · SAN NICOLÁS') + ' · BUENOS AIRES';
   palermoButton.classList.toggle('active', level === 'palermo');
   obeliscoButton.classList.toggle('active', level === 'obelisco');
+  mapAttribution.textContent = level === 'obelisco' ? '© OpenStreetMap contributors · ODbL 1.0 · alturas estimadas donde no hay dato' : '';
   hint.textContent = level === 'obelisco' ? 'Explorá el Obelisco y las cuadras del centro · ESC para liberar' : 'Explorá Palermo Soho · ESC para liberar';
   updateCamera();
 }

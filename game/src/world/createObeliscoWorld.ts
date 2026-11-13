@@ -100,6 +100,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const obelisk=new THREE.Mesh(new THREE.CylinderGeometry(.2,4.81,67.5,4,1,false),WHITE);
   obelisk.rotation.y=Math.PI/4; obelisk.position.set(0,33.75,0); obelisk.castShadow=true; obelisk.receiveShadow=true; group.add(obelisk);
   const plinth=new THREE.Mesh(new THREE.BoxGeometry(7.8,.48,7.8),WHITE); plinth.position.y=.28; group.add(plinth);
+  colliders.push({minX:-3.4,maxX:3.4,minZ:-3.4,maxZ:3.4,height:67.5});
   const door=new THREE.Mesh(new THREE.BoxGeometry(.95,2.15,.06),DARK); door.position.set(-3.42,1.35,0); group.add(door);
   for(let y=8;y<64;y+=8){
     const side=6.8-y*.082;

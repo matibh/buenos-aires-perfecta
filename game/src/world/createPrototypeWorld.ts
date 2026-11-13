@@ -77,11 +77,11 @@ export function createPrototypeWorld(scene: THREE.Scene): WorldCollider[] {
     colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, height: h });
 
     // Street-level shopfronts: broad glazing, a recessed-looking door and occasional awning.
-    shopWindows.push({ position: new THREE.Vector3(x - .65, 1.55, z - d / 2 - .055), scale: new THREE.Vector3(Math.min(2.5, w * .48), 1.9, .08) });
-    shopDoors.push({ position: new THREE.Vector3(x + w * .29, 1.2, z - d / 2 - .07), scale: new THREE.Vector3(.82, 2.35, .1) });
+    shopWindows.push({ position: new THREE.Vector3(x - .65, 1.55, z + d / 2 + .055), scale: new THREE.Vector3(Math.min(2.5, w * .48), 1.9, .08) });
+    shopDoors.push({ position: new THREE.Vector3(x + w * .29, 1.2, z + d / 2 + .07), scale: new THREE.Vector3(.82, 2.35, .1) });
     if (rand(seed++) > .35) {
       const awningIndex = Math.floor(rand(seed++) * awningMats.length);
-      awnings.push({ position: new THREE.Vector3(x - .45, 2.75, z - d / 2 - .38), scale: new THREE.Vector3(2.8, .16, .72) });
+      awnings.push({ position: new THREE.Vector3(x - .45, 2.75, z + d / 2 + .38), scale: new THREE.Vector3(2.8, .16, .72) });
       // A small color variation is applied to the shared canopy material below by deterministic building palette.
       void awningIndex;
     }
@@ -93,11 +93,11 @@ export function createPrototypeWorld(scene: THREE.Scene): WorldCollider[] {
     for (let y = 3.65; y < h - 1.15; y += 3.05, floor++) {
       for (let col = 0; col < columns; col++) {
         const px = x - (columns - 1) * 1.05 + col * 2.1;
-        panesFront.push({ position: new THREE.Vector3(px, y, z - d / 2 - .055), scale: new THREE.Vector3(.92, 1.28, .09) });
-        framesFront.push({ position: new THREE.Vector3(px, y, z - d / 2 - .09), scale: new THREE.Vector3(1.08, 1.43, .07) });
+        panesFront.push({ position: new THREE.Vector3(px, y, z + d / 2 + .055), scale: new THREE.Vector3(.92, 1.28, .09) });
+        framesFront.push({ position: new THREE.Vector3(px, y, z + d / 2 + .09), scale: new THREE.Vector3(1.08, 1.43, .07) });
         if (rand(seed++) > .73 && y < h - 2.2) {
-          balconyDecks.push({ position: new THREE.Vector3(px, y - .76, z - d / 2 - .38), scale: new THREE.Vector3(1.55, .12, .68) });
-          balconyRails.push({ position: new THREE.Vector3(px, y - .36, z - d / 2 - .68), scale: new THREE.Vector3(1.55, .62, .07) });
+          balconyDecks.push({ position: new THREE.Vector3(px, y - .76, z + d / 2 + .38), scale: new THREE.Vector3(1.55, .12, .68) });
+          balconyRails.push({ position: new THREE.Vector3(px, y - .36, z + d / 2 + .68), scale: new THREE.Vector3(1.55, .62, .07) });
         }
       }
       for (let col = 0; col < sideColumns; col++) {

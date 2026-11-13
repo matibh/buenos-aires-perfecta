@@ -1,0 +1,255 @@
+name: Autonomous Codex — repair and develop
+
+on:
+  workflow_run:
+    workflows: ["Build and deploy Buenos Aires Perfecta"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: obelisco-autonomous-codex
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.context.outputs.mode }}
+      cycle_depth: ${{ steps.context.outputs.cycle_depth }}
+      fix_attempts: ${{ steps.context.outputs.fix_attempts }}
+    steps:
+      - name: Classify completed build and enforce loop limits
+        id: context
+        env:
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_MESSAGE: ${{ github.event.workflow_run.head_commit.message }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+
+          message = os.environ.get("HEAD_MESSAGE", "")
+          cycle = re.search(r"\[auto-cycle:(\d+)/3\]", message)
+          fixes = re.search(r"\[auto-fix:(\d+)/2\]", message)
+          cycle_depth = int(cycle.group(1)) if cycle else 0
+          fix_attempts = int(fixes.group(1)) if fixes else 0
+          conclusion = os.environ["CONCLUSION"]
+
+          if os.environ.get("API_KEY_PRESENT", "false").lower() != "true":
+              mode = "needs_setup"
+          elif conclusion == "failure":
+              mode = "repair" if fix_attempts < 2 else "skip"
+          elif conclusion == "success":
+              mode = "develop" if cycle_depth < 3 else "skip"
+          else:
+              mode = "skip"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"mode={mode}\n")
+              out.write(f"cycle_depth={cycle_depth}\n")
+              out.write(f"fix_attempts={fix_attempts}\n")
+
+          context = [
+              "# Autonomous run context",
+              f"- Completed workflow conclusion: {conclusion}",
+              f"- Workflow run ID: {os.environ['RUN_ID']}",
+              f"- Tested commit: {os.environ['HEAD_SHA']}",
+              f"- Commit message: {message}",
+              f"- Current autonomous development depth: {cycle_depth}/3",
+              f"- Repair attempts already used in this chain: {fix_attempts}/2",
+              f"- Agent mode: {mode}",
+              "",
+          ]
+          Path("AUTONOMY_CONTEXT.md").write_text("\n".join(context), encoding="utf-8")
+          print(f"mode={mode}; cycle={cycle_depth}; fixes={fix_attempts}")
+          PY
+
+      - name: Collect failed workflow logs
+        if: steps.context.outputs.mode == 'repair'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          {
+            echo
+            echo "## Failed GitHub Actions logs (last 700 lines)"
+            echo
+            gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed 2>&1 | tail -n 700
+          } >> AUTONOMY_CONTEXT.md
+
+      - name: Explain required API setup
+        if: steps.context.outputs.mode == 'needs_setup'
+        run: |
+          {
+            echo "## Setup required"
+            echo "Add the repository secret OPENAI_API_KEY under Settings → Secrets and variables → Actions."
+            echo "No agent call was made and no API usage was incurred."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Explain why the autonomous chain stopped
+        if: steps.context.outputs.mode == 'skip'
+        run: |
+          {
+            echo "## Autonomous cycle stopped"
+            echo "The workflow reached its retry/iteration limit, or the completed build was not eligible."
+            echo "A new human-initiated commit and successful/failed Pages run starts a fresh bounded chain."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  codex:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.mode == 'repair' || needs.prepare.outputs.mode == 'develop' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      has_patch: ${{ steps.diff.outputs.has_patch }}
+    steps:
+      - name: Check out the exact tested revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install project dependencies without changing the lockfile
+        run: npm install --package-lock=false
+
+      - name: Run Codex in the restricted workspace
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: .github/codex/autonomous-task.md
+          output-file: codex-summary.md
+          permission-profile: ":workspace"
+          allow-bots: "true"
+
+      - name: Reject edits to protected automation and serialize the patch
+        id: diff
+        run: |
+          git add -N .
+          blocked="$(git diff --name-only HEAD | grep -E '^(\.github/workflows/|\.github/codex/|AGENTS\.md$|public/data/obelisco-world\.json$)' || true)"
+          if [ -n "$blocked" ]; then
+            echo "Codex touched protected paths:"
+            echo "$blocked"
+            exit 1
+          fi
+          git diff --check
+          git diff --binary HEAD > codex.patch
+          if [ -s codex.patch ]; then
+            echo "has_patch=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_patch=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload proposed patch and agent report
+        if: steps.diff.outputs.has_patch == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-autonomous-patch
+          path: |
+            codex.patch
+            codex-summary.md
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Report no-change outcome
+        if: steps.diff.outputs.has_patch != 'true'
+        run: |
+          {
+            echo "## No patch produced"
+            cat codex-summary.md 2>/dev/null || echo "Codex found no safe, validated change to make."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validate-and-dispatch:
+    needs: [prepare, codex]
+    if: ${{ needs.codex.result == 'success' && needs.codex.outputs.has_patch == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Check out the latest main branch
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download Codex patch
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-autonomous-patch
+
+      - name: Apply proposed patch
+        run: git apply --3way --index codex.patch
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate production build and Python syntax
+        run: |
+          npm install --package-lock=false
+          npm run build
+          python -m compileall -q map-generator/src
+          git diff --cached --check
+
+      - name: Commit validated changes and start the next Pages build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.prepare.outputs.mode }}
+          CYCLE_DEPTH: ${{ needs.prepare.outputs.cycle_depth }}
+          FIX_ATTEMPTS: ${{ needs.prepare.outputs.fix_attempts }}
+        run: |
+          blocked="$(git diff --cached --name-only | grep -E '^(\.github/workflows/|\.github/codex/|AGENTS\.md$|public/data/obelisco-world\.json$)' || true)"
+          if [ -n "$blocked" ]; then
+            echo "Protected paths detected in patch:"
+            echo "$blocked"
+            exit 1
+          fi
+
+          if [ "$MODE" = "repair" ]; then
+            next_cycle="$CYCLE_DEPTH"
+            next_fix=$((FIX_ATTEMPTS + 1))
+            message="[auto-cycle:$next_cycle/3] [auto-fix:$next_fix/2] Repair failed Buenos Aires Perfecta build"
+          else
+            next_cycle=$((CYCLE_DEPTH + 1))
+            message="[auto-cycle:$next_cycle/3] [auto-fix:0/2] Continue Buenos Aires Perfecta development"
+          fi
+
+          if git diff --cached --quiet; then
+            echo "No staged changes to commit."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "$message"
+          git push origin HEAD:main
+
+          gh workflow run build-obelisco-world.yml --repo "$GITHUB_REPOSITORY" --ref main
+          {
+            echo "## Autonomous patch validated and dispatched"
+            echo "- Mode: $MODE"
+            echo "- Commit: $message"
+            echo "- The full GIS generation, production build, and Pages deployment have been queued."
+            echo "- Next development iteration: $next_cycle/3 (maximum three per human-started chain)."
+          } >> "$GITHUB_STEP_SUMMARY"

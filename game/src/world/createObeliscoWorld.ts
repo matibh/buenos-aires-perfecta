@@ -152,18 +152,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       group.userData.centerX=chunk.centerX;
       group.userData.centerZ=chunk.centerZ;
       group.userData.chunkX=cx; group.userData.chunkZ=cz;
-      chunkBuilds.set(key,chunk);
-      group.add(geometryGroup,detail);
-      group.children.splice(0,2);
-      group.add(geometryGroup,detail);
-      group.visible=true;
-      group.userData.detailGroup=detail;
-      group.userData.renderChunk=true;
-      group.userData.centerX=chunk.centerX;
-      group.userData.centerZ=chunk.centerZ;
       group.userData.geometryGroup=geometryGroup;
-      // The world group is assigned below after chunk creation.
-      group.userData.attachToWorld=true;
+      chunkBuilds.set(key,chunk);
     }
     return chunk;
   };

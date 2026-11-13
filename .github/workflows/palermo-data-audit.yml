@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# Multiple commits can arrive while the large geospatial downloads are running.
+# Keep only the newest audit for this pilot to avoid duplicate Overpass/API load.
+concurrency:
+  group: palermo-source-audit
+  cancel-in-progress: true
+
 jobs:
   inspect-map-sources:
     runs-on: ubuntu-latest

@@ -19,7 +19,11 @@ type GeoFeature = {
   facadeHexSecondary?: string;
   facadeReferenceDate?: string;
   facadeReferenceStatus?: string;
+  facadeReferenceSource?: string;
+  facadeSurface?: string;
   facadeLine?: number[][];
+  frontageStreet?: string;
+  frontageAddresses?: Array<{street:string;number:string;width:number}>;
   facadeLines?: number[][][];
   frontageWidths?: number[];
   frontageWidth?: number;
@@ -28,6 +32,11 @@ type GeoFeature = {
   frontageClass?: string;
   frontageUpdated?: string;
   storefrontCount?: number;
+  plinthHex?: string;
+  awningProfile?: string;
+  signProfile?: string;
+  signReferenceDate?: string;
+  signReferenceSource?: string;
   balconyTag?: string;
   architectureProfile?: string;
   architectureReference?: string;
@@ -61,11 +70,14 @@ const ROAD = new THREE.MeshStandardMaterial({ color: 0x292d2f, roughness: .96, s
 const SIDEWALK = new THREE.MeshStandardMaterial({ color: 0xaaa69d, roughness: 1, side: THREE.DoubleSide });
 const GREEN = new THREE.MeshStandardMaterial({ color: 0x526d4d, roughness: 1, side: THREE.DoubleSide });
 const PLAZA = new THREE.MeshStandardMaterial({ color: 0x8d8b84, roughness: 1, side: THREE.DoubleSide });
-const BUILDING_COLORS = [0xb9b3a9,0xc9c0b4,0xa9a49c,0xd0c7b9,0xaaa69e,0xbeb5a7,0xd7d0c5,0x9f9d98,0xc3b8a8,0xb1aaa0,0xd9d1c4,0xaaaeb0,0xc5c2bb,0x968f86,0x986b55,0xb6a184,0xe0d2b8,0x777c7c];
-const BUILDING_MATERIALS = BUILDING_COLORS.map(color => new THREE.MeshStandardMaterial({ color, roughness: .94 }));
+const BUILDING_COLORS = [0xb9b3a9,0xc9c0b4,0xa9a49c,0xd0c7b9,0xaaa69e,0xbeb5a7,0xd7d0c5,0x9f9d98,0xc3b8a8,0xb1aaa0,0xd9d1c4,0xaaaeb0,0xc5c2bb,0x968f86,0x986b55,0xb6a184,0xe0d2b8,0x777c7c,0x526d76,0x777d80];
+const BUILDING_MATERIALS = BUILDING_COLORS.map((color,index) => index===18
+  ? new THREE.MeshPhysicalMaterial({color,roughness:.24,metalness:.28,clearcoat:.82,clearcoatRoughness:.16})
+  : index===19 ? new THREE.MeshStandardMaterial({color,roughness:.42,metalness:.48})
+  : new THREE.MeshStandardMaterial({ color, roughness: .94 }));
 const WHITE = new THREE.MeshStandardMaterial({ color: 0xe8e7df, roughness: .9 });
 const DARK = new THREE.MeshStandardMaterial({ color: 0x252c30, roughness: .35, metalness: .12 });
-const GLASS = new THREE.MeshStandardMaterial({ color: 0x40545b, roughness: .32, metalness: .18 });
+const GLASS = new THREE.MeshPhysicalMaterial({ color: 0x40545b, roughness: .2, metalness: .28, clearcoat: .82, clearcoatRoughness: .14, reflectivity: .82 });
 const WINDOW_FRAME = new THREE.MeshStandardMaterial({ color: 0xe5ded1, roughness: .86 });
 
 function local(lon: number, lat: number, origin: {lon:number;lat:number}) {
@@ -168,7 +180,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const roads: THREE.BufferGeometry[]=[];
   const sidewalks: THREE.BufferGeometry[]=[];
   type InstanceBox = {x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number};
-  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; sampledBuildings: Map<string, THREE.BufferGeometry[]>; sampledFrames: Map<string, InstanceBox[]>; windows: InstanceBox[]; frames: InstanceBox[]; storefronts: InstanceBox[]; balconies: InstanceBox[]; balconyRails: InstanceBox[]; cornices: InstanceBox[]; pilasters: InstanceBox[]; domes: Array<{x:number;y:number;z:number;radius:number}>; rooftopUnits: InstanceBox[]; centerX:number; centerZ:number };
+  type ChunkBuild = { group: THREE.Group; geometryGroup: THREE.Group; detail: THREE.Group; buildings: THREE.BufferGeometry[][]; sampledBuildings: Map<string, THREE.BufferGeometry[]>; sampledFrames: Map<string, InstanceBox[]>; sampledCornices: Map<string, InstanceBox[]>; sampledPilasters: Map<string, InstanceBox[]>; windows: InstanceBox[]; frames: InstanceBox[]; storefronts: InstanceBox[]; balconies: InstanceBox[]; balconyRails: InstanceBox[]; cornices: InstanceBox[]; pilasters: InstanceBox[]; plinths: InstanceBox[]; domes: Array<{x:number;y:number;z:number;radius:number}>; rooftopUnits: InstanceBox[]; centerX:number; centerZ:number };
   const chunkBuilds = new Map<string, ChunkBuild>();
   const CHUNK_SIZE = 256;
   const getChunk = (x:number,z:number):ChunkBuild => {
@@ -182,7 +194,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const detail=new THREE.Group();
       detail.name='chunk-details';
       group.add(geometryGroup,detail);
-      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),sampledBuildings:new Map(),sampledFrames:new Map(),windows:[],frames:[],storefronts:[],balconies:[],balconyRails:[],cornices:[],pilasters:[],domes:[],rooftopUnits:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
+      chunk={group,geometryGroup,detail,buildings:BUILDING_COLORS.map(()=>[]),sampledBuildings:new Map(),sampledFrames:new Map(),sampledCornices:new Map(),sampledPilasters:new Map(),windows:[],frames:[],storefronts:[],balconies:[],balconyRails:[],cornices:[],pilasters:[],plinths:[],domes:[],rooftopUnits:[],centerX:(cx+.5)*CHUNK_SIZE,centerZ:(cz+.5)*CHUNK_SIZE};
       group.userData.renderChunk=true;
       group.userData.detailGroup=detail;
       group.userData.centerX=chunk.centerX;
@@ -201,7 +213,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     if (material.includes('brick') || material.includes('ladrillo')) return 14;
     if (material.includes('stone') || material.includes('piedra')) return 15;
     if (material.includes('plaster') || material.includes('stucco') || material.includes('revoque')) return 16;
-    if (material.includes('glass') || material.includes('vidrio')) return 17;
+    if (material.includes('glass') || material.includes('vidrio')) return 18;
+    if (material.includes('metal') || material.includes('aluminio')) return 19;
     const colour = (feature.facadeColour || '').toLowerCase().replace(/[_-]/g, ' ');
     if (colour.includes('red') || colour.includes('rojo') || colour.includes('terracotta')) return 14;
     if (colour.includes('stone') || colour.includes('beige') || colour.includes('sand')) return 15;
@@ -238,9 +251,11 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const buildingMesh = buildingGeometry(ring,data.origin,height);
       const sampledHex = /^#[0-9a-f]{6}$/i.test(f.facadeHex || '') ? f.facadeHex!.toLowerCase() : '';
       if (sampledHex) {
-        const bucket = chunk.sampledBuildings.get(sampledHex);
+        const surface = f.facadeSurface || 'plaster';
+        const sampleKey = sampledHex + '|' + surface;
+        const bucket = chunk.sampledBuildings.get(sampleKey);
         if (bucket) bucket.push(buildingMesh);
-        else chunk.sampledBuildings.set(sampledHex,[buildingMesh]);
+        else chunk.sampledBuildings.set(sampleKey,[buildingMesh]);
       } else {
         chunk.buildings[facadeIndex].push(buildingMesh);
       }
@@ -320,11 +335,24 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
         if (len > 2) facadeEdges.push({a,b,height});
         if(len>=7) {
           const angle=Math.atan2(-dz,dx), nx=Math.sin(angle), nz=Math.cos(angle);
-          const shopCount=f.architectureProfile === 'corrientes-1252-1264-twin-domes' ? 4 : 1;
+          const shopCount=Number(f.storefrontCount)>0 ? Math.min(8,Math.round(Number(f.storefrontCount))) :
+            f.architectureProfile === 'corrientes-1252-1264-twin-domes' ? 4 : 1;
           for(let shop=0;shop<shopCount;shop++){
             const t=(shop+.5)/shopCount,wx=a.x+dx*t,wz=a.z+dz*t;
             const shopWidth=shopCount===1?Math.min(len*.62,8.5):Math.max(1.2,len/shopCount-.28);
             chunk.storefronts.push({x:wx+nx*.11,y:1.45,z:wz+nz*.11,rotation:angle,sx:shopWidth,sy:2.35,sz:.075});
+            if(f.architectureProfile === 'guerrin-2026'){
+              const unitX=dx/len,unitZ=dz/len,frameHex=f.windowFrameHex;
+              const frameItems=[
+                {x:wx-unitX*shopWidth/2+nx*.17,y:1.45,z:wz-unitZ*shopWidth/2+nz*.17,rotation:angle,sx:.13,sy:2.55,sz:.15},
+                {x:wx+unitX*shopWidth/2+nx*.17,y:1.45,z:wz+unitZ*shopWidth/2+nz*.17,rotation:angle,sx:.13,sy:2.55,sz:.15},
+                {x:wx+nx*.17,y:2.72,z:wz+nz*.17,rotation:angle,sx:shopWidth,sy:.13,sz:.15}
+              ];
+              if(/^#[0-9a-f]{6}$/i.test(frameHex||'')){
+                const key=frameHex!.toLowerCase(),bucket=chunk.sampledFrames.get(key);
+                if(bucket)bucket.push(...frameItems);else chunk.sampledFrames.set(key,frameItems);
+              } else chunk.frames.push(...frameItems);
+            }
             if(shopCount>1 && shop>0){
               chunk.pilasters.push({x:a.x+dx*(shop/shopCount)+nx*.14,y:1.55,z:a.z+dz*(shop/shopCount)+nz*.14,rotation:angle,sx:.14,sy:2.9,sz:.2});
             }
@@ -361,12 +389,25 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
         if (measuredFrontage && len >= 5) {
           const normalX=Math.sin(angle),normalZ=Math.cos(angle);
           const floorStep=height/Math.max(1,floorCount);
+          const trimHex = /^#[0-9a-f]{6}$/i.test(f.facadeHexSecondary || '') ? f.facadeHexSecondary!.toLowerCase() : '';
           for(let floor=1;floor<=floorCount;floor++){
             const y=floor*floorStep;
-            chunk.cornices.push({x:(a.x+b.x)/2+normalX*.12,y,z:(a.z+b.z)/2+normalZ*.12,rotation:angle,sx:len,sy:.105,sz:.24});
+            const item={x:(a.x+b.x)/2+normalX*.12,y,z:(a.z+b.z)/2+normalZ*.12,rotation:angle,sx:len,sy:.105,sz:.24};
+            if(trimHex){
+              const bucket=chunk.sampledCornices.get(trimHex);
+              if(bucket)bucket.push(item);else chunk.sampledCornices.set(trimHex,[item]);
+            } else chunk.cornices.push(item);
           }
-          chunk.pilasters.push({x:a.x+normalX*.12,y:height/2,z:a.z+normalZ*.12,rotation:angle,sx:.22,sy:height,sz:.28});
-          chunk.pilasters.push({x:b.x+normalX*.12,y:height/2,z:b.z+normalZ*.12,rotation:angle,sx:.22,sy:height,sz:.28});
+          for(const endpoint of [a,b]){
+            const item={x:endpoint.x+normalX*.12,y:height/2,z:endpoint.z+normalZ*.12,rotation:angle,sx:.22,sy:height,sz:.28};
+            if(trimHex){
+              const bucket=chunk.sampledPilasters.get(trimHex);
+              if(bucket)bucket.push(item);else chunk.sampledPilasters.set(trimHex,[item]);
+            } else chunk.pilasters.push(item);
+          }
+          if(f.architectureProfile === 'guerrin-2026' && f.plinthHex){
+            chunk.plinths.push({x:(a.x+b.x)/2+normalX*.14,y:.36,z:(a.z+b.z)/2+normalZ*.14,rotation:angle,sx:len,sy:.72,sz:.3});
+          }
         }
       }
       }
@@ -374,8 +415,14 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   }
   for (const chunk of chunkBuilds.values()) {
     chunk.buildings.forEach((geometries,index)=>addMerged(chunk.geometryGroup,geometries,BUILDING_MATERIALS[index],true));
-    for (const [hex,geometries] of chunk.sampledBuildings) {
-      addMerged(chunk.geometryGroup,geometries,new THREE.MeshStandardMaterial({color:hex,roughness:.92}),true);
+    for (const [key,geometries] of chunk.sampledBuildings) {
+      const [hex,surface='plaster']=key.split('|');
+      const material = surface === 'glazed-ceramic'
+        ? new THREE.MeshPhysicalMaterial({color:hex,roughness:.34,metalness:.06,clearcoat:.5,clearcoatRoughness:.24})
+        : surface === 'glass'
+          ? new THREE.MeshPhysicalMaterial({color:hex,roughness:.22,metalness:.32,clearcoat:.8})
+          : new THREE.MeshStandardMaterial({color:hex,roughness:surface==='stone'?.84:.92});
+      addMerged(chunk.geometryGroup,geometries,material,true);
     }
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),WINDOW_FRAME,chunk.frames);
     for (const [hex,items] of chunk.sampledFrames) {
@@ -387,6 +434,9 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),DARK,chunk.balconyRails);
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0x9b958a,roughness:.88}),chunk.cornices);
     addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0xaaa398,roughness:.9}),chunk.pilasters);
+    for(const [hex,items] of chunk.sampledCornices) addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:hex,roughness:.86}),items);
+    for(const [hex,items] of chunk.sampledPilasters) addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:hex,roughness:.88}),items);
+    addInstancedBoxes(chunk.detail,new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0x171719,roughness:.72}),chunk.plinths);
     if (chunk.domes.length) {
       const domeGeometry=new THREE.SphereGeometry(1,18,10,0,Math.PI*2,0,Math.PI/2);
       const domeMaterial=new THREE.MeshStandardMaterial({color:0x82776a,roughness:.72,metalness:.16});
@@ -453,7 +503,9 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     const sx=col*signCellW, sy=row*signCellH;
     const pizza=feature.isPizzeria===true;
     const category=(feature.category||'').toLowerCase();
-    const palette = pizza ? ['#9b2e25','#fff2d7'] :
+    const signProfile=feature.signProfile || '';
+    const palette = signProfile === 'guerrin-2026' ? ['#4a171d','#d5b16d'] :
+      pizza ? ['#9b2e25','#fff2d7'] :
       category==='shop' ? ['#263c48','#f5e9d5'] :
       category==='amenity' ? ['#294a3b','#f3ead8'] : ['#343333','#f2eee5'];
     atlasCtx.fillStyle='#191919'; atlasCtx.fillRect(sx,sy,signCellW,signCellH);
@@ -463,19 +515,29 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
     let fontSize=27;
     do { atlasCtx.font='bold '+fontSize+'px Arial'; fontSize-=1; }
     while(atlasCtx.measureText(venueName).width>signCellW-18 && fontSize>11);
-    atlasCtx.fillStyle='#fff8e9';
-    atlasCtx.fillText(venueName,sx+signCellW/2,sy+signCellH/2,signCellW-18);
+    if(signProfile === 'guerrin-2026'){
+      atlasCtx.strokeStyle='#d5b16d';atlasCtx.lineWidth=2;atlasCtx.strokeRect(sx+6,sy+6,signCellW-12,signCellH-12);
+      atlasCtx.textAlign='center';atlasCtx.textBaseline='middle';
+      atlasCtx.font='italic bold 34px Georgia';atlasCtx.fillStyle='#e4c783';
+      atlasCtx.fillText('Güerrín',sx+signCellW/2,sy+28,signCellW-20);
+      atlasCtx.font='bold 9px Arial';atlasCtx.fillText('PATIO NAPOLITANO · DESDE 1932',sx+signCellW/2,sy+51,signCellW-16);
+    } else {
+      atlasCtx.fillStyle='#fff8e9';
+      atlasCtx.fillText(venueName,sx+signCellW/2,sy+signCellH/2,signCellW-18);
+    }
 
-    const width=THREE.MathUtils.clamp(Math.min(best.length*.78,venueName.length*.105+1.7),2.2,7.4);
+    const width=signProfile === 'guerrin-2026'
+      ? THREE.MathUtils.clamp(best.length*.82,5.2,8.5)
+      : THREE.MathUtils.clamp(Math.min(best.length*.78,venueName.length*.105+1.7),2.2,7.4);
     const plane=new THREE.PlaneGeometry(1,1);
     const uv=plane.getAttribute('uv');
     for(let v=0;v<uv.count;v++){
       uv.setXY(v,(sx+uv.getX(v)*signCellW)/atlas.width,1-(sy+(1-uv.getY(v))*signCellH)/atlas.height);
     }
     plane.applyMatrix4(new THREE.Matrix4().compose(
-      new THREE.Vector3(best.x+Math.sin(best.angle)*.20,3.45,best.z+Math.cos(best.angle)*.20),
+      new THREE.Vector3(best.x+Math.sin(best.angle)*.20,signProfile === 'guerrin-2026' ? 3.6 : 3.45,best.z+Math.cos(best.angle)*.20),
       new THREE.Quaternion().setFromEuler(new THREE.Euler(0,best.angle,0)),
-      new THREE.Vector3(width,.78,1)
+      new THREE.Vector3(width,signProfile === 'guerrin-2026' ? 1.12 : .78,1)
     ));
     signGeometries.push(plane);
     const awningItem={x:best.x+Math.sin(best.angle)*.48,y:2.72,z:best.z+Math.cos(best.angle)*.48,rotation:best.angle,sx:width,sy:.32,sz:.82};

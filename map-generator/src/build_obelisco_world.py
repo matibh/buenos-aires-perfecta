@@ -594,67 +594,33 @@ def main():
     # no visual identity is assigned when geocoding cannot confidently locate a building.
     architectural_references = [
         {
-            "address": "Avenida Corrientes 1205, Buenos Aires, Argentina",
-            "profile": "corrientes-1205-aslan-ezcurra",
-            "name": "Edificio Av. Corrientes 1205",
-            "floors": 13,
-            "facade": "#a9c7d3",
-            "trim": "#e9e7df",
-            "window_frame": "#24292d",
-            "balcony": "yes",
+            "street": "CORRIENTES", "number_min": 1205, "number_max": 1205,
+            "profile": "corrientes-1205-aslan-ezcurra", "name": "Edificio Av. Corrientes 1205",
+            "floors": 13, "facade": "#a9c7d3", "trim": "#e9e7df",
+            "window_frame": "#24292d", "balcony": "yes", "surface": "plaster",
+            "date": "", "status": "architectural_reference",
             "source": "https://www.modernabuenosaires.org/obras/20s-a-70s/edificio-av-corrientes-1205",
         },
         {
-            "address": "Avenida Corrientes 1258, Buenos Aires, Argentina",
-            "profile": "corrientes-1252-1264-twin-domes",
-            "name": "Edificio Corrientes 1252-1264",
-            "floors": 7,
-            "facade": "#c9c0b2",
-            "trim": "#e8dfd2",
-            "window_frame": "#3d3935",
-            "balcony": "yes",
+            "street": "CORRIENTES", "number_min": 1252, "number_max": 1264,
+            "profile": "corrientes-1252-1264-twin-domes", "name": "Edificio Corrientes 1252-1264",
+            "floors": 7, "rear_floors": 5, "facade": "#c9c0b2", "trim": "#e8dfd2",
+            "window_frame": "#3d3935", "balcony": "yes", "surface": "stone",
+            "date": "2026-02-10", "status": "verified_2026",
             "source": "https://www.clarin.com/ciudades/edificio-avenida-corrientes-cupulas-gemelas-vacio-hace-20-anos-historias-vivieron_0_o9D6qHXmcw.amp.html",
+        },
+        {
+            "street": "CORRIENTES", "number_min": 1368, "number_max": 1368,
+            "profile": "guerrin-2026", "name": "Pizzería Güerrín",
+            "floors": None, "facade": "#b51f2b", "trim": "#c9a35e",
+            "window_frame": "#d0a65d", "balcony": "", "surface": "glazed-ceramic",
+            "storefront_count": 4, "awning": "red-white", "plinth": "#171719",
+            "date": "2026-03-16", "status": "verified_2026",
+            "source": "https://commons.wikimedia.org/wiki/File:Fachada_de_la_tradicional_pizzer%C3%ADa_Pizzer%C3%ADa_G%C3%BCerr%C3%ADn_sobre_la_Avenida_Corrientes,_en_la_Ciudad_de_Buenos_Aires.jpg",
         },
     ]
     architectural_reference_matches = 0
-    for reference in architectural_references:
-        try:
-            lat, lon = ox.geocode(reference["address"])
-            anchor_point = Point(lon, lat)
-            nearest = None
-            for feature in features:
-                if feature.get("type") != "building" or not feature.get("polygons"):
-                    continue
-                try:
-                    polygon = Polygon(feature["polygons"][0])
-                    distance = polygon.distance(anchor_point)
-                except Exception:
-                    continue
-                if nearest is None or distance < nearest[0]:
-                    nearest = (distance, feature.get("smp"))
-            if nearest is None or nearest[0] > 0.00022 or not nearest[1]:
-                print(f"Architectural reference not confidently matched: {reference['name']} (distance={nearest[0] if nearest else 'none'})", flush=True)
-                continue
-            matched_smp = str(nearest[1])
-            matched = 0
-            for feature in features:
-                if feature.get("type") != "building" or str(feature.get("smp") or "") != matched_smp:
-                    continue
-                feature["architectureProfile"] = reference["profile"]
-                feature["architectureReference"] = reference["source"]
-                feature["architectureName"] = reference["name"]
-                feature["architecturalFloors"] = reference["floors"]
-                feature["facadeHex"] = reference["facade"]
-                feature["facadeHexSecondary"] = reference["trim"]
-                feature["windowFrameHex"] = reference["window_frame"]
-                feature["balconyTag"] = reference.get("balcony", "")
-                matched += 1
-            architectural_reference_matches += 1
-            print(f"Applied documented architectural profile: {reference['name']} · parcel {matched_smp} · volumes={matched}", flush=True)
-            time.sleep(1.1)
-        except Exception as exc:
-            print(f"Architectural reference lookup unavailable for {reference['name']}: {exc}", flush=True)
-    counts["architectural_reference_matches"] = architectural_reference_matches
+    architectural_current_2026 = 0
 
     # Parcel-level facade references: use USIG photos only as visual measurements.
     # Original photo pixels are never shipped in the game; only derived color samples
@@ -744,7 +710,7 @@ def main():
             "https://cdn.buenosaires.gob.ar/datosabiertos/datasets/"
             "secretaria-de-desarrollo-urbano/parcelas/frentes-parcelas.zip"
         )
-        print("Resolved official frontage source: Frentes de parcelas (SHP) · BA Data · CC-BY-2.5-AR", flush=True)
+        print("Resolved official frontage source: Frentes de parcelas (SHP) · BA Data · CC-BY-4.0", flush=True)
         frontage_cache = CACHE_DIR / "official-frontages.zip"
         if not frontage_cache.exists() or frontage_cache.stat().st_size < 1000:
             response = request_with_retries(frontage_url, "Official cadastral frontages", timeout=180, stream=True)
@@ -777,6 +743,77 @@ def main():
         } if "smp" in official_layer.columns else set()
         frontages["__smp_norm"] = frontages[smp_field].map(normalize_smp)
         frontage_smp = set(frontages["__smp_norm"]) - {""}
+
+        def normalized_street(value):
+            return "".join(
+                char for char in unicodedata.normalize("NFKD", str(value or "").upper())
+                if not unicodedata.combining(char) and char.isalnum()
+            )
+
+        for reference in architectural_references:
+            matched_smp = set()
+            for _, frontage in frontages.iterrows():
+                street_value = normalized_street(frontage.get(frontage_field) or frontage.get("frente"))
+                if reference["street"] not in street_value:
+                    continue
+                number_match = re.search(r"\\d+", str(frontage.get("num_dom") or ""))
+                if not number_match:
+                    continue
+                number = int(number_match.group(0))
+                if not reference["number_min"] <= number <= reference["number_max"]:
+                    continue
+                parcel_smp = normalize_smp(frontage.get("__smp_norm"))
+                if parcel_smp and parcel_smp in official_smp:
+                    matched_smp.add(parcel_smp)
+            if not matched_smp:
+                print(
+                    f"Architectural reference not matched by cadastral address: {reference['name']} "
+                    f"({reference['street']} {reference['number_min']}-{reference['number_max']}); "
+                    f"street field={frontage_field}",
+                    flush=True
+                )
+                continue
+            matched_volumes = 0
+            for feature in features:
+                if feature.get("type") != "building" or normalize_smp(feature.get("smp")) not in matched_smp:
+                    continue
+                feature["architectureProfile"] = reference["profile"]
+                feature["architectureReference"] = reference["source"]
+                feature["architectureName"] = reference["name"]
+                feature["architecturalFloors"] = reference.get("floors")
+                feature["facadeHex"] = reference["facade"]
+                feature["facadeHexSecondary"] = reference["trim"]
+                feature["windowFrameHex"] = reference["window_frame"]
+                feature["balconyTag"] = reference.get("balcony", "")
+                feature["facadeSurface"] = reference.get("surface", "plaster")
+                feature["storefrontCount"] = reference.get("storefront_count", 1)
+                feature["awningProfile"] = reference.get("awning", "")
+                feature["plinthHex"] = reference.get("plinth", "")
+                feature["facadeReferenceDate"] = reference.get("date", "")
+                feature["facadeReferenceStatus"] = reference.get("status", "architectural_reference")
+                feature["facadeReferenceSource"] = reference["source"]
+                matched_volumes += 1
+            if reference["profile"] == "guerrin-2026":
+                for feature in features:
+                    if feature.get("type") != "business":
+                        continue
+                    business_name = normalized_street(feature.get("brand") or feature.get("name"))
+                    if "GUERRIN" in business_name:
+                        feature["signProfile"] = "guerrin-2026"
+                        feature["signReferenceDate"] = "2026-03-16"
+                        feature["signReferenceSource"] = reference["source"]
+                        feature["awningProfile"] = "red-white"
+            architectural_reference_matches += 1
+            if reference.get("status") == "verified_2026":
+                architectural_current_2026 += 1
+            print(
+                f"Applied cadastral architectural profile: {reference['name']} · "
+                f"parcels={len(matched_smp)} · volumes={matched_volumes}",
+                flush=True
+            )
+        counts["architectural_reference_matches"] = architectural_reference_matches
+
+
         matching_smp = official_smp.intersection(frontage_smp) if official_smp else set()
         print(
             f"Official frontages in Obelisco bounds: {len(frontages)}; "
@@ -821,6 +858,7 @@ def main():
                 record = {
                     "line": ring(line.coords), "width": round(width_m, 2),
                     "number": str(frontage.get("num_dom") or "")[:24],
+                    "street": str(frontage.get(frontage_field) or frontage.get("frente") or "")[:80],
                     "parcel": str(frontage.get("parcela") or "")[:32],
                     "class": str(frontage.get("clase") or "")[:32],
                     "updated": str(frontage.get("fecha") or frontage.get("anio_act") or "")[:32],
@@ -849,6 +887,11 @@ def main():
             feature["parcelId"] = profiles[0]["parcel"]
             feature["frontageClass"] = profiles[0]["class"]
             feature["frontageUpdated"] = profiles[0]["updated"]
+            feature["frontageStreet"] = profiles[0].get("street", "")
+            feature["frontageAddresses"] = [
+                {"street": profile.get("street", ""), "number": profile["number"], "width": profile["width"]}
+                for profile in profiles
+            ]
             if feature.get("architectureProfile") == "corrientes-1252-1264-twin-domes":
                 try:
                     building_polygon = Polygon(feature["polygons"][0])
@@ -974,7 +1017,9 @@ def main():
                         image_bytes.startswith(b"\\xff\\xd8") or
                         image_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n")
                     ):
-                        print(f"USIG returned non-image response for SMP {smp}; skipping", flush=True)
+                        content_type = image_response.headers.get("content-type", "unknown")
+                        body_preview = image_bytes[:120].decode("utf-8", errors="replace").replace("\\n", " ")[:120]
+                        print(f"USIG returned non-image response for SMP {smp}; content-type={content_type}; preview={body_preview}", flush=True)
                         continue
                     cached_photo.write_bytes(image_bytes)
 
@@ -1017,18 +1062,18 @@ def main():
 
         counts["facade_photos"] = facade_photo_count
         counts["facade_color_matches"] = facade_color_matches
-        counts["facade_current_2026"] = facade_current_2026
+        counts["facade_current_2026"] = facade_current_2026 + architectural_current_2026
         counts["facade_historical_reference"] = facade_historical
         print(
             f"USIG facade color profiles: photos={facade_photo_count}; "
-            f"building matches={facade_color_matches}; 2026 dated={facade_current_2026}; "
+            f"building matches={facade_color_matches}; 2026 dated={facade_current_2026 + architectural_current_2026}; "
             f"historical or undated={facade_historical}",
             flush=True
         )
     except Exception as exc:
         counts["facade_photos"] = facade_photo_count
         counts["facade_color_matches"] = facade_color_matches
-        counts["facade_current_2026"] = facade_current_2026
+        counts["facade_current_2026"] = facade_current_2026 + architectural_current_2026
         counts["facade_historical_reference"] = facade_historical
         print(f"WARNING: USIG facade color enrichment unavailable; keeping verified base geometry: {exc}", flush=True)
 
@@ -1041,7 +1086,7 @@ def main():
     if facade_photo_count:
         sources.append({"name":"Buenos Aires Ciudad · USIG · Fotografías de fachada","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · USIG","url":"https://servicios.usig.buenosaires.gob.ar/"})
     if counts.get("measured_frontage_matches", 0):
-        sources.append({"name":"Buenos Aires Ciudad · Frentes de parcelas","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · catastro parcelario","url":"https://data.buenosaires.gob.ar/"})
+        sources.append({"name":"Buenos Aires Ciudad · Frentes de parcelas","license":"CC-BY-4.0","attribution":"Buenos Aires Ciudad · catastro parcelario","url":"https://data.buenosaires.gob.ar/"})
     if architectural_reference_matches:
         sources.append({"name":"Moderna Buenos Aires + referencias periodísticas de arquitectura","license":"Metadata and descriptive facts only","attribution":"Moderna Buenos Aires; Clarín · references linked per building"})
     payload = {

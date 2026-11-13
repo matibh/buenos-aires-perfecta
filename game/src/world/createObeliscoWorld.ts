@@ -109,13 +109,13 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   ground.rotation.x=-Math.PI/2; ground.position.y=-.04; ground.receiveShadow=true; group.add(ground);
 
   // The monumental 9 de Julio corridor and Corrientes crossing establish the real urban scale.
-  const avenue9 = new THREE.Mesh(new THREE.BoxGeometry(108,.07,1780),ROAD);
+  const avenue9 = new THREE.Mesh(new THREE.BoxGeometry(128,.07,1500),ROAD);
   avenue9.position.set(0,.005,0); avenue9.receiveShadow=true; group.add(avenue9);
-  const corrientes = new THREE.Mesh(new THREE.BoxGeometry(2300,.075,30),ROAD);
+  const corrientes = new THREE.Mesh(new THREE.BoxGeometry(1650,.075,32),ROAD);
   corrientes.position.set(0,.012,0); corrientes.receiveShadow=true; group.add(corrientes);
   const medianMaterial=new THREE.MeshStandardMaterial({color:0x718768,roughness:1});
   for(const x of [-35,35]){
-    const median=new THREE.Mesh(new THREE.BoxGeometry(5.5,.13,1680),medianMaterial);
+    const median=new THREE.Mesh(new THREE.BoxGeometry(5.5,.13,1420),medianMaterial);
     median.position.set(x,.07,0); median.receiveShadow=true; group.add(median);
   }
 
@@ -205,7 +205,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
 
   // Boulevard lane dashes and pedestrian crossings: the width of 9 de Julio must read at street level.
   const laneDashes:Array<{x:number;y:number;z:number;sx:number;sy:number;sz:number}>=[];
-  for(const x of [-46,-36,-24,-12,12,24,36,46]) for(let z=-850;z<850;z+=22)
+  for(const x of [-58,-48,-25,-16,16,25,48,58]) for(let z=-710;z<710;z+=22)
     laneDashes.push({x,y:.105,z,sx:.16,sy:.025,sz:8});
   const whitePaint=new THREE.MeshStandardMaterial({color:0xe8e7df,roughness:1});
   addInstancedBoxes(group,new THREE.BoxGeometry(1,1,1),whitePaint,laneDashes);
@@ -244,7 +244,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   for(const f of data.features) if(f.type==='tree'&&f.point){
     const p=local(f.point[0],f.point[1],data.origin); treePositions.push({x:p.x,y:0,z:p.z});
   }
-  for(const x of [-35,35]) for(let z=-700;z<=700;z+=34) treePositions.push({x,y:0,z});
+  for(const x of [-35,35]) for(let z=-600;z<=600;z+=34) treePositions.push({x,y:0,z});
   if(treePositions.length){
     const trunkGeo=new THREE.CylinderGeometry(.13,.18,2.1,6),crownGeo=new THREE.IcosahedronGeometry(1.1,1);
     const trunkMat=new THREE.MeshStandardMaterial({color:0x6d5039}),crownMat=new THREE.MeshStandardMaterial({color:0x426a49});

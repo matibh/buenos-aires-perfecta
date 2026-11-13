@@ -77,6 +77,16 @@ function addInstancedBoxes(group: THREE.Group, geometry: THREE.BufferGeometry, m
   });
   mesh.instanceMatrix.needsUpdate=true; mesh.castShadow=false; mesh.receiveShadow=true; group.add(mesh);
 }
+function addInstancedCylinders(group: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, items: Array<{x:number;y:number;z:number}>) {
+  if (!items.length) return;
+  const mesh = new THREE.InstancedMesh(geometry, material, items.length);
+  const dummy = new THREE.Object3D();
+  items.forEach((item,index) => {
+    dummy.position.set(item.x,item.y,item.z);
+    dummy.updateMatrix(); mesh.setMatrixAt(index,dummy.matrix);
+  });
+  mesh.instanceMatrix.needsUpdate=true; mesh.castShadow=true; mesh.receiveShadow=true; group.add(mesh);
+}
 function footprintArea(ring: number[][], origin: {lon:number;lat:number}) {
   const pts=ring.map(([lon,lat])=>local(lon,lat,origin));
   let area=0;
@@ -113,7 +123,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const buildings: THREE.BufferGeometry[][]=BUILDING_COLORS.map(()=>[]);
   const windowItems:Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>=[];
   const frameItems:Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>=[];
-  const landmarkNames:string[]=[];
+  const colonColumns:Array<{x:number;y:number;z:number}>=[];
 
   for(const f of data.features){
     if(f.type==='road' && f.line && f.line.length>1) roads.push(roadGeometry(f.line,f.width??9,data.origin));
@@ -126,14 +136,45 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   for(const f of data.features){
     if(f.type!=='building'||!f.polygons) continue;
     const materialIndex=buildingIndex++%BUILDING_COLORS.length;
-    if(f.name) landmarkNames.push(f.name);
     for(const ring of f.polygons){
       if(ring.length<4) continue;
       const height=f.heightSource==='visual fallback estimate' ? visualHeight(ring,data.origin) : Math.max(3,Math.min(f.height??9.5,150));
       buildings[materialIndex].push(buildingGeometry(ring,data.origin,height));
       const pts=ring.map(([lon,lat])=>local(lon,lat,data.origin));
       const xs=pts.map(p=>p.x),zs=pts.map(p=>p.z);
-      colliders.push({minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs),height});
+      const minX=Math.min(...xs),maxX=Math.max(...xs),minZ=Math.min(...zs),maxZ=Math.max(...zs);
+      colliders.push({minX,maxX,minZ,maxZ,height});
+
+      const landmark=(f.name||'').toLowerCase();
+      if(landmark.includes('teatro col')) {
+        // The Colón keeps its mapped footprint, with a recognizable historic roof and street colonnade.
+        const cx=(minX+maxX)/2,cz=(minZ+maxZ)/2;
+        const roofBase=new THREE.Mesh(new THREE.CylinderGeometry(9,12,2.2,24),new THREE.MeshStandardMaterial({color:0xb8aa92,roughness:.9}));
+        roofBase.position.set(cx,height+1.1,cz); roofBase.castShadow=true; group.add(roofBase);
+        const dome=new THREE.Mesh(new THREE.SphereGeometry(10,24,14,0,Math.PI*2,0,Math.PI/2),new THREE.MeshStandardMaterial({color:0xaaa18f,roughness:.82}));
+        dome.position.set(cx,height+2.2,cz); dome.castShadow=true; group.add(dome);
+        for(let edge=0;edge<pts.length-1;edge++){
+          const a=pts[edge],b=pts[edge+1],len=Math.hypot(b.x-a.x,b.z-a.z);
+          if(len<20 || Math.abs(a.z-maxZ)>1.4 || Math.abs(b.z-maxZ)>1.4) continue;
+          const count=Math.max(3,Math.floor(len/7));
+          for(let i=0;i<count;i++){
+            const t=(i+.5)/count;
+            colonColumns.push({x:a.x+(b.x-a.x)*t,y:3.0,z:maxZ+.45});
+          }
+        }
+      }
+      if(landmark.includes('gran rex')) {
+        // A legible marquee marks the real Gran Rex frontage facing Corrientes.
+        const canvas=document.createElement('canvas'); canvas.width=512; canvas.height=96;
+        const ctx=canvas.getContext('2d');
+        if(ctx){
+          ctx.fillStyle='#17191a';ctx.fillRect(0,0,512,96);
+          ctx.fillStyle='#f5e8c8';ctx.font='bold 64px Arial';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('GRAN REX',256,49);
+        }
+        const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
+        const sign=new THREE.Mesh(new THREE.PlaneGeometry(13,2.45),new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide}));
+        sign.position.set((minX+maxX)/2,Math.min(height-2.5,9),maxZ+.18);group.add(sign);
+      }
 
       // Repeated window bays, aligned to each actual footprint edge.
       const floorCount=Math.max(1,Math.floor((height-2.8)/3.25));
@@ -160,6 +201,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   buildings.forEach((geometries,index)=>addMerged(group,geometries,BUILDING_MATERIALS[index],true));
   addInstancedBoxes(group,new THREE.BoxGeometry(1,1,1),WINDOW_FRAME,frameItems);
   addInstancedBoxes(group,new THREE.BoxGeometry(1,1,1),GLASS,windowItems);
+  addInstancedCylinders(group,new THREE.CylinderGeometry(.34,.43,5.8,8),new THREE.MeshStandardMaterial({color:0xd0c5b2,roughness:.9}),colonColumns);
 
   // Boulevard lane dashes and pedestrian crossings: the width of 9 de Julio must read at street level.
   const laneDashes:Array<{x:number;y:number;z:number;sx:number;sy:number;sz:number}>=[];

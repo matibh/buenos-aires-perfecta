@@ -592,13 +592,35 @@ def main():
     facade_photo_dir.mkdir(parents=True, exist_ok=True)
     facade_cache_dir.mkdir(parents=True, exist_ok=True)
     try:
+        # Resolve the frontage resource from the official Parcelas dataset.
+        # The old resource_show identifier was not a valid CKAN resource UUID.
         frontage_meta = request_with_retries(
-            "https://data.buenosaires.gob.ar/api/3/action/resource_show?id=juqdkmgo-1564-resource",
-            "Official cadastral frontages metadata", timeout=60
+            "https://data.buenosaires.gob.ar/api/3/action/package_show?id=parcelas",
+            "Official Parcelas dataset metadata", timeout=60
         ).json()
         if not frontage_meta.get("success"):
-            raise RuntimeError("CKAN did not return the official frontage resource")
-        frontage_url = frontage_meta["result"]["url"]
+            raise RuntimeError(f"CKAN did not return the official Parcelas dataset: {frontage_meta.get('error', {})}")
+        frontage_resources = frontage_meta.get("result", {}).get("resources", [])
+        frontage_matches = [
+            resource for resource in frontage_resources
+            if "frentes" in str(resource.get("name", "")).lower()
+            and ("shp" in str(resource.get("name", "")).lower()
+                 or str(resource.get("format", "")).lower() in {"shp", "zip"}
+                 or str(resource.get("url", "")).lower().endswith(".zip"))
+            and resource.get("url")
+        ]
+        if not frontage_matches:
+            raise RuntimeError(
+                "The official Parcelas dataset has no downloadable 'Frentes de parcelas (SHP)' resource; "
+                f"available resources: {[r.get('name') for r in frontage_resources]}"
+            )
+        frontage_resource = frontage_matches[0]
+        frontage_url = frontage_resource["url"]
+        print(
+            f"Resolved official frontage source: {frontage_resource.get('name')} "
+            f"({frontage_resource.get('format', 'unknown format')})",
+            flush=True
+        )
         frontage_cache = CACHE_DIR / "official-frontages.zip"
         if not frontage_cache.exists() or frontage_cache.stat().st_size < 1000:
             response = request_with_retries(frontage_url, "Official cadastral frontages", timeout=180, stream=True)

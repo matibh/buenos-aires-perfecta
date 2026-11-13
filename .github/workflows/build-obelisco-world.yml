@@ -65,7 +65,9 @@ jobs:
           git add public/data/obelisco-world.json
           if ! git diff --cached --quiet; then
             git commit -m "Refresh generated Obelisco world data [skip ci]"
-            git pull --rebase origin main
+            # The generated map is the only file in this bot commit. If another run
+            # refreshed it first, prefer this run's freshly generated version.
+            git pull --rebase -X theirs origin main
             git push
           fi
       - name: Setup Node

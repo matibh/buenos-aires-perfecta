@@ -19,6 +19,7 @@ type GeoFeature = {
   openingHours?: string;
   address?: string;
   website?: string;
+  isPizzeria?: boolean;
 };
 export type ObeliscoWorldData = { origin: { lon: number; lat: number }; features: GeoFeature[]; counts: Record<string, number> };
 export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: number; height: number };
@@ -132,7 +133,8 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   const buildings: THREE.BufferGeometry[][]=BUILDING_COLORS.map(()=>[]);
   const windowItems:Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>=[];
   const frameItems:Array<{x:number;y:number;z:number;rotation:number;sx:number;sy:number;sz:number}>=[];
-  const colonColumns:Array<{x:number;y:number;z:number}>=[];
+  const colonColumns:Array<{x:number;y:number;z:number}>=[]; 
+  const facadeEdges:Array<{a:{x:number;z:number};b:{x:number;z:number};height:number}>=[];
   let colonLandmarkBuilt=false,granRexSignBuilt=false;
 
   for(const f of data.features){
@@ -193,6 +195,7 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
       const floorCount=Math.max(1,Math.floor((height-2.8)/3.25));
       for(let edge=0;edge<pts.length-1;edge++){
         const a=pts[edge],b=pts[edge+1],dx=b.x-a.x,dz=b.z-a.z,len=Math.hypot(dx,dz);
+        if (len > 2) facadeEdges.push({a,b,height});
         if(len<5) continue;
         const count=Math.max(1,Math.floor(len/3.4));
         const angle=Math.atan2(-dz,dx);
@@ -215,6 +218,56 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   addInstancedBoxes(group,new THREE.BoxGeometry(1,1,1),WINDOW_FRAME,frameItems);
   addInstancedBoxes(group,new THREE.BoxGeometry(1,1,1),GLASS,windowItems);
   addInstancedCylinders(group,new THREE.CylinderGeometry(.34,.43,5.8,8),new THREE.MeshStandardMaterial({color:0xd0c5b2,roughness:.9}),colonColumns);
+
+
+  // Real mapped business names become modest facade-mounted signs. The label text
+  // comes from the mapped venue name; no invented shop brands are generated.
+  const signMaterials: THREE.Material[] = [];
+  for (const feature of data.features) {
+    if (feature.type !== 'business' || !feature.point || !feature.name?.trim()) continue;
+    const point = local(feature.point[0], feature.point[1], data.origin);
+    let best: {distance:number;x:number;z:number;angle:number;height:number} | null = null;
+    for (const edge of facadeEdges) {
+      const dx = edge.b.x - edge.a.x, dz = edge.b.z - edge.a.z;
+      const lengthSq = dx*dx + dz*dz;
+      if (lengthSq < .01) continue;
+      const t = THREE.MathUtils.clamp(((point.x-edge.a.x)*dx + (point.z-edge.a.z)*dz) / lengthSq, 0, 1);
+      const x = edge.a.x + t*dx, z = edge.a.z + t*dz;
+      const distance = Math.hypot(point.x-x, point.z-z);
+      if (!best || distance < best.distance) best = {distance,x,z,angle:-Math.atan2(dz,dx),height:edge.height};
+    }
+    if (!best || best.distance > 18) continue;
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) continue;
+    const pizza = feature.isPizzeria === true;
+    ctx.fillStyle = pizza ? '#9b2e25' : '#20282b';
+    ctx.fillRect(0,0,512,128);
+    ctx.fillStyle = pizza ? '#fff2d7' : '#f1eadc';
+    ctx.fillRect(8,8,496,112);
+    ctx.fillStyle = pizza ? '#9b2e25' : '#20282b';
+    ctx.fillRect(14,14,484,100);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    let fontSize = 54;
+    do {
+      ctx.font = `bold ${fontSize}px Arial`;
+      fontSize -= 2;
+    } while (ctx.measureText(feature.name).width > 450 && fontSize > 20);
+    ctx.fillStyle = '#fff5e5';
+    ctx.fillText(feature.name.slice(0,38),256,64,460);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide});
+    signMaterials.push(material);
+    const width = THREE.MathUtils.clamp(feature.name.length * .19, 2.1, 5.2);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(width,.92),material);
+    sign.position.set(best.x,best.height > 5 ? 3.55 : 2.8,best.z);
+    sign.rotation.y = best.angle;
+    sign.position.x += Math.sin(best.angle)*.13;
+    sign.position.z += Math.cos(best.angle)*.13;
+    group.add(sign);
+  }
 
   // Boulevard lane dashes and pedestrian crossings: the width of 9 de Julio must read at street level.
   const laneDashes:Array<{x:number;y:number;z:number;sx:number;sy:number;sz:number}>=[];

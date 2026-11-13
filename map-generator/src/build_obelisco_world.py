@@ -71,7 +71,11 @@ def read_tejido_urbano(bbox):
     """Discover all published Tejido Urbano formats and try SHP/GeoJSON in order."""
     package_url = "https://data.buenosaires.gob.ar/api/3/action/package_show?id=tejido-urbano"
     errors = []
-    candidates = []
+    # Prefer the official SHP archive: it is smaller and avoids the CDN timeout
+    # previously seen with the full-city GeoJSON resource.
+    candidates = [
+        ("https://data.buenosaires.gob.ar/api/3/action/resource_show?id=3db0ef7b-5353-4c4d-ae2c-fb1ffdba8f35", "Tejido Urbano official SHP")
+    ]
     try:
         package = request_with_retries(package_url, "Tejido Urbano package metadata", timeout=60).json()
         if package.get("success"):
@@ -84,8 +88,8 @@ def read_tejido_urbano(bbox):
                     if resource.get("url"): candidates.append((resource["url"], name or fmt))
     except Exception as exc:
         errors.append(f"CKAN package discovery: {exc}")
-    if not candidates:
-        candidates.append(("https://data.buenosaires.gob.ar/api/3/action/resource_show?id=9d950b8c-d8cd-4dde-9987-9565313974c8", "known GeoJSON resource metadata"))
+    # Keep the known official GeoJSON as a secondary source, not the first attempt.
+    candidates.append(("https://data.buenosaires.gob.ar/api/3/action/resource_show?id=9d950b8c-d8cd-4dde-9987-9565313974c8", "Tejido Urbano official GeoJSON"))
     for url, name in candidates:
         try:
             if url.endswith("9d950b8c-d8cd-4dde-9987-9565313974c8") or "resource_show?id=" in url:
@@ -346,10 +350,16 @@ def main():
         if is_place and geom.geom_type in ("Point", "Polygon", "MultiPolygon", "LineString", "MultiLineString"):
             location = geom if geom.geom_type == "Point" else geom.representative_point()
             business_name = str(tags_row.get("name") or tags_row.get("brand") or "")
+            pizza_name = business_name.lower()
+            is_pizzeria = (
+                "pizza" in str(tags_row.get("cuisine") or "").lower()
+                or any(token in pizza_name for token in ("guerrin", "güerrin", "banchero", "las cuartetas", "cuartetas", "palacio de la pizza", "kentucky", "sbarro", "ugi", "los inmortales", "genova", "génova"))
+            )
             features.append({
                 "type": "business",
                 "point": [round(float(location.x), 7), round(float(location.y), 7)],
                 "name": business_name[:120],
+                "isPizzeria": bool(is_pizzeria),
                 "category": business_category,
                 "kind": str(tags_row.get(business_category) or "")[:80],
                 "brand": str(tags_row.get("brand") or "")[:100],
@@ -362,6 +372,7 @@ def main():
             })
             counts["businesses"] += 1
             if business_name: counts["named_businesses"] += 1
+            if is_pizzeria: counts["pizzerias"] += 1
         if tags_row.get("highway") and geom.geom_type in ("LineString", "MultiLineString"):
             lines = [geom] if geom.geom_type == "LineString" else list(geom.geoms)
             for line in lines:

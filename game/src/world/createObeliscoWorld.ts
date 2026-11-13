@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 type GeoFeature = {
   type: 'building' | 'road' | 'green' | 'tree';
@@ -17,7 +18,6 @@ export type WorldCollider = { minX: number; maxX: number; minZ: number; maxZ: nu
 const ROAD = new THREE.MeshStandardMaterial({ color: 0x353b3d, roughness: .98, side: THREE.DoubleSide });
 const GREEN = new THREE.MeshStandardMaterial({ color: 0x6e9168, roughness: 1, side: THREE.DoubleSide });
 const BUILDING_COLORS = [0xc9c1b5,0xd4cabb,0xbeb6a8,0xd7d0c3,0xb9b1a5,0xc8b9a6,0xd9d4ca];
-const WINDOW = new THREE.MeshStandardMaterial({ color: 0x344c59, roughness: .3, metalness: .12 });
 const WHITE = new THREE.MeshStandardMaterial({ color: 0xe9e8df, roughness: .88 });
 const DARK = new THREE.MeshStandardMaterial({ color: 0x3b3c3b, roughness: .7 });
 
@@ -33,15 +33,15 @@ function polygonMesh(ring: number[][], origin: {lon:number;lat:number}, y: numbe
   geometry.rotateX(-Math.PI/2);
   const mesh = new THREE.Mesh(geometry,material); mesh.position.y=y; mesh.receiveShadow=true; return mesh;
 }
-function buildingMesh(ring: number[][], origin: {lon:number;lat:number}, height: number, material: THREE.Material) {
+function buildingGeometry(ring: number[][], origin: {lon:number;lat:number}, height: number) {
   const shape = new THREE.Shape();
   ring.forEach(([lon,lat],i) => { const p=local(lon,lat,origin); if(i===0) shape.moveTo(p.x,-p.z); else shape.lineTo(p.x,-p.z); });
   shape.closePath();
   const geometry = new THREE.ExtrudeGeometry(shape,{depth:height,bevelEnabled:false,curveSegments:1});
   geometry.rotateX(-Math.PI/2);
-  const mesh = new THREE.Mesh(geometry,material); mesh.castShadow=true; mesh.receiveShadow=true; return mesh;
+  return geometry;
 }
-function roadStrip(points: number[][], width: number, origin: {lon:number;lat:number}) {
+function roadGeometry(points: number[][], width: number, origin: {lon:number;lat:number}) {
   const vertices: number[]=[]; const indices: number[]=[];
   const coords=points.map(([lon,lat])=>local(lon,lat,origin));
   for(let i=0;i<coords.length-1;i++){
@@ -51,7 +51,7 @@ function roadStrip(points: number[][], width: number, origin: {lon:number;lat:nu
     indices.push(base,base+2,base+1,base+1,base+2,base+3);
   }
   const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3)); g.setIndex(indices); g.computeVertexNormals();
-  return new THREE.Mesh(g,ROAD);
+  return g;
 }
 
 export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData): WorldCollider[] {
@@ -68,17 +68,17 @@ export function createObeliscoWorld(group: THREE.Group, data: ObeliscoWorldData)
   for(const f of data.features){
     if(f.type!=='building'||!f.polygons) continue;
     const height=Math.max(3,Math.min(f.height??9.5,150));
-    const mat=new THREE.MeshStandardMaterial({color:BUILDING_COLORS[buildingIndex++%BUILDING_COLORS.length],roughness:.92});
+    const materialIndex=buildingIndex++%BUILDING_COLORS.length;
     for(const ring of f.polygons){
       if(ring.length<4) continue;
-      const mesh=buildingMesh(ring,data.origin,height,mat); group.add(mesh);
+      buildings[materialIndex].push(buildingGeometry(ring,data.origin,height));
       const pts=ring.map(([lon,lat])=>local(lon,lat,data.origin));
       const xs=pts.map(p=>p.x),zs=pts.map(p=>p.z);
       colliders.push({minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs),height});
     }
   }
 
-  // The monument is modeled to its published 67.5 m height and 6.8 m square base.
+  buildings.forEach((geometries,index)=>{if(!geometries.length)return;const merged=mergeGeometries(geometries,false);if(merged){const mesh=new THREE.Mesh(merged,buildingMaterials[index]);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);}geometries.forEach(g=>g.dispose());});\n\n  // The monument is modeled to its published 67.5 m height and 6.8 m square base.
   const plaza=new THREE.Mesh(new THREE.CircleGeometry(18,64),new THREE.MeshStandardMaterial({color:0x858d82,roughness:1}));
   plaza.rotation.x=-Math.PI/2; plaza.position.y=.09; group.add(plaza);
   const obelisk=new THREE.Mesh(new THREE.CylinderGeometry(.2,4.81,67.5,4,1,false),WHITE);

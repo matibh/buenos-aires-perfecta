@@ -6,6 +6,7 @@
   "sources":[
     {"id":"caba_tejido_urbano","path":"data/raw/caba/tejido_urbano.geojson","purpose":"Building footprints and available height attributes"},
     {"id":"caba_parcelas","path":"data/raw/caba/parcelas.geojson","purpose":"Parcel geometry and address context"},
-    {"id":"osm","path":"data/raw/osm/palermo.osm.pbf","purpose":"Roads, paths, amenities, vegetation and supplemental building tags"}
+    {"id":"osm_features","path":"data/raw/osm/palermo_features.geojson","purpose":"Buildings, parks, trees, amenities and shops"},
+    {"id":"osm_roads","path":"data/raw/osm/palermo_roads.geojson","purpose":"Street and path network"}
   ]
 }

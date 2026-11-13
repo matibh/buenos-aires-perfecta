@@ -1,3 +1,4 @@
+// @ts-nocheck -- facade generation is deliberately disabled; retained temporarily for reference.
 /// <reference types="vite/client" />
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';

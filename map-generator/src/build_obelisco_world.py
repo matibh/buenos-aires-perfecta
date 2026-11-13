@@ -1,4 +1,4 @@
-"""Build an attributed, 3D-ready city dataset around the Buenos Aires Obelisk."""
+"""Build an attributed 3D city dataset around the Buenos Aires Obelisk."""
 from __future__ import annotations
 import json, re
 from pathlib import Path
@@ -22,8 +22,11 @@ def number(value):
     match = re.search(r"[-+]?\d+(?:[.,]\d+)?", str(value))
     return float(match.group(0).replace(",", ".")) if match else None
 
-def load_official_heights():
-    """Read CABA's official building-height layer, clipped to the Obelisco area."""
+def valid_value(value):
+    return pd.notna(value) and not (isinstance(value, str) and not value.strip())
+
+def load_official_layer():
+    """Load the City's 3D building-volume layer, clipped to the playable area."""
     west, south, east, north = (BBOX[k] for k in ("west", "south", "east", "north"))
     try:
         layer = gpd.read_file(OFFICIAL_URL, bbox=(west, south, east, north))
@@ -34,62 +37,66 @@ def load_official_heights():
         layer = layer[layer.geometry.notna()].copy()
         height_fields = [c for c in layer.columns if re.search(r"altura|height|alt_m|metros", str(c), re.I)]
         floor_fields = [c for c in layer.columns if re.search(r"pisos|niveles|floors|levels", str(c), re.I)]
+        print(f"CABA Tejido Urbano: {len(layer)} geometries; height fields={height_fields}; floor fields={floor_fields}")
         if not height_fields and not floor_fields:
-            print("CABA Tejido Urbano: no se identificó un campo de altura; OSM fallback retained.")
+            print("WARNING: no recognized official height field; OSM fallback will be used.")
             return None, [], []
-        print(f"CABA Tejido Urbano fields: {list(layer.columns)}")
-        print(f"CABA height candidates: {height_fields}; floor candidates: {floor_fields}")
         return layer, height_fields, floor_fields
     except Exception as exc:
-        print(f"WARNING: official CABA height layer unavailable ({exc}); OSM height tags and marked estimates will be used.")
+        print(f"WARNING: official CABA layer unavailable ({exc}); OSM geometry fallback will be used.")
         return None, [], []
 
-def official_height_for(geom, layer, height_fields, floor_fields):
-    if layer is None or geom is None:
-        return None
-    try:
-        indexes = list(layer.sindex.query(geom, predicate="intersects"))
-        best = None
-        best_ratio = 0.0
-        area = geom.area
-        if area <= 0: return None
-        for idx in indexes:
-            candidate = layer.iloc[idx]
-            overlap = geom.intersection(candidate.geometry).area
-            ratio = overlap / area
-            if ratio > best_ratio:
-                best, best_ratio = candidate, ratio
-        if best is None or best_ratio < 0.45:
-            return None
-        props = best
-        for field in height_fields:
-            value = number(props.get(field))
-            if value is not None and 2.5 <= value <= 180:
-                return round(value, 1), f"CABA Tejido Urbano · {field} (data through 2021)"
-        for field in floor_fields:
-            value = number(props.get(field))
-            if value is not None and 1 <= value <= 55:
-                return round(value * 3.15, 1), f"CABA Tejido Urbano · {field} × 3.15m"
-    except Exception as exc:
-        print(f"WARNING: official height match failed for one footprint: {exc}")
+def official_height(row, height_fields, floor_fields):
+    for field in height_fields:
+        value = number(row.get(field))
+        if value is not None and 2.5 <= value <= 180:
+            return round(value, 1), f"CABA Tejido Urbano · {field} (data through 2021)"
+    for field in floor_fields:
+        value = number(row.get(field))
+        if value is not None and 1 <= value <= 55:
+            return round(value * 3.15, 1), f"CABA Tejido Urbano · {field} × 3.15m"
     return None
 
-def height_for(tags, geom, official):
-    official_layer, height_fields, floor_fields = official
-    match = official_height_for(geom, official_layer, height_fields, floor_fields)
-    if match: return match
-    h = number(tags.get("height"))
-    if h and 2.5 <= h <= 250: return round(h, 1), "OSM height tag"
-    levels = number(tags.get("building:levels") or tags.get("levels"))
-    if levels and 1 <= levels <= 80: return round(levels * 3.15, 1), "OSM levels × 3.15m estimate"
-    return 9.5, "visual fallback estimate"
+def polygons_of(geom):
+    if geom.geom_type == "Polygon": return [geom]
+    if geom.geom_type == "MultiPolygon": return list(geom.geoms)
+    if geom.geom_type == "GeometryCollection":
+        return [g for g in geom.geoms if g.geom_type == "Polygon"]
+    return []
 
 def ring(coords):
-    return [[round(float(x), 7), round(float(y), 7)] for x, y in coords]
+    return [[round(float(point[0]), 7), round(float(point[1]), 7)] for point in coords]
+
+def osm_name_for(geom, osm_buildings):
+    try:
+        indexes = list(osm_buildings.sindex.query(geom, predicate="intersects"))
+        best_name, best_ratio = "", 0.0
+        area = geom.area
+        if area <= 0: return ""
+        for idx in indexes:
+            candidate = osm_buildings.iloc[idx]
+            overlap = geom.intersection(candidate.geometry).area / area
+            if overlap > best_ratio:
+                best_ratio = overlap
+                name = candidate.get("name")
+                best_name = str(name) if valid_value(name) else ""
+        return best_name if best_ratio >= 0.15 else ""
+    except Exception:
+        return ""
+
+def covered_by_official(geom, official_layer):
+    if official_layer is None: return False
+    try:
+        indexes = official_layer.sindex.query(geom, predicate="intersects")
+        area = geom.area
+        if area <= 0: return False
+        return any(geom.intersection(official_layer.geometry.iloc[idx]).area / area >= 0.25 for idx in indexes)
+    except Exception:
+        return False
 
 def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    official = load_official_heights()
+    official_layer, height_fields, floor_fields = load_official_layer()
     tags = {
         "building": True,
         "highway": True,
@@ -100,26 +107,74 @@ def main():
     west, south, east, north = (BBOX[k] for k in ("west", "south", "east", "north"))
     gdf = ox.features_from_bbox((west, south, east, north), tags=tags)
     gdf = gdf[gdf.geometry.notna()].copy()
-    features = []
-    counts = {"buildings": 0, "roads": 0, "green": 0, "trees": 0, "official_height_matches": 0}
-    for _, row in gdf.iterrows():
-        geom = row.geometry
-        tags_row = {}
+
+    def row_tags(row):
+        result = {}
         for key in ("building","height","building:levels","levels","name","highway","leisure","landuse","natural","width","surface","amenity","shop"):
             value = row.get(key)
-            if pd.notna(value) and not (isinstance(value, str) and not value.strip()):
-                tags_row[key] = value
-        building_tag = str(tags_row.get("building", "")).strip().lower()
-        is_building = bool(building_tag) and building_tag not in ("no", "false", "0")
-        if is_building and geom.geom_type in ("Polygon", "MultiPolygon"):
-            h, source = height_for(tags_row, geom, official)
-            if source.startswith("CABA Tejido Urbano"): counts["official_height_matches"] += 1
-            polys = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
-            polygons = [ring(poly.exterior.coords) for poly in polys if poly.area >= 0.00000000002]
-            if polygons:
-                features.append({"type":"building","polygons":polygons,"height":h,"heightSource":source,"name":str(tags_row.get("name") or "")[:100]})
+            if valid_value(value): result[key] = value
+        return result
+
+    osm_buildings = gdf[gdf.apply(lambda row: (
+        str(row.get("building", "")).strip().lower() not in ("", "no", "false", "0")
+        and row.geometry.geom_type in ("Polygon", "MultiPolygon")
+        and valid_value(row.get("building"))
+    ), axis=1)].copy()
+
+    features = []
+    counts = {
+        "buildings": 0, "official_building_volumes": 0, "osm_buildings_fallback": 0,
+        "official_height_matches": 0, "roads": 0, "green": 0, "trees": 0
+    }
+
+    # Primary building geometry comes from the City's mapped 3D urban fabric.
+    # Multiple height volumes are preserved rather than flattened into one box.
+    if official_layer is not None:
+        for _, row in official_layer.iterrows():
+            geom = row.geometry
+            measured = official_height(row, height_fields, floor_fields)
+            if not measured: continue
+            height, source = measured
+            name = osm_name_for(geom, osm_buildings)
+            for poly in polygons_of(geom):
+                if poly.area < 0.00000000002: continue
+                features.append({
+                    "type":"building","polygons":[ring(poly.exterior.coords)],
+                    "height":height,"heightSource":source,"name":name[:100]
+                })
                 counts["buildings"] += 1
-        elif tags_row.get("highway") and geom.geom_type in ("LineString", "MultiLineString"):
+                counts["official_building_volumes"] += 1
+                counts["official_height_matches"] += 1
+
+    # OSM supplies names and a fallback for buildings not covered by the 2021 city layer.
+    for _, row in osm_buildings.iterrows():
+        geom = row.geometry
+        if covered_by_official(geom, official_layer): continue
+        tags_row = row_tags(row)
+        height = number(tags_row.get("height"))
+        if height and 2.5 <= height <= 250:
+            source = "OSM height tag"
+        else:
+            levels = number(tags_row.get("building:levels") or tags_row.get("levels"))
+            if levels and 1 <= levels <= 80:
+                height, source = round(levels * 3.15, 1), "OSM levels × 3.15m estimate"
+            else:
+                height, source = 9.5, "visual fallback estimate"
+        for poly in polygons_of(geom):
+            if poly.area < 0.00000000002: continue
+            features.append({
+                "type":"building","polygons":[ring(poly.exterior.coords)],
+                "height":height,"heightSource":source,
+                "name":str(tags_row.get("name") or "")[:100]
+            })
+            counts["buildings"] += 1
+            counts["osm_buildings_fallback"] += 1
+
+    # OSM remains the source for streets, parks and individually mapped trees.
+    for _, row in gdf.iterrows():
+        geom = row.geometry
+        tags_row = row_tags(row)
+        if tags_row.get("highway") and geom.geom_type in ("LineString", "MultiLineString"):
             lines = [geom] if geom.geom_type == "LineString" else list(geom.geoms)
             for line in lines:
                 if len(line.coords) < 2: continue
@@ -136,7 +191,7 @@ def main():
                 features.append({"type":"road","line":ring(line.coords),"width":min(max(width,2),100),"highway":highway,"name":name[:100]})
                 counts["roads"] += 1
         elif (tags_row.get("leisure") or tags_row.get("landuse") in ("grass","forest","recreation_ground") or tags_row.get("natural") == "wood") and geom.geom_type in ("Polygon","MultiPolygon"):
-            polys = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
+            polys = polygons_of(geom)
             polygons = [ring(p.exterior.coords) for p in polys if p.area > 0.0000000001]
             if polygons:
                 features.append({"type":"green","polygons":polygons,"name":str(tags_row.get("name") or "")[:100]})
@@ -145,14 +200,14 @@ def main():
             features.append({"type":"tree","point":[round(geom.x,7),round(geom.y,7)]})
             counts["trees"] += 1
 
+    sources = [{"name":"OpenStreetMap contributors","license":"ODbL 1.0","attribution":"© OpenStreetMap contributors"}]
+    if counts["official_height_matches"]:
+        sources.append({"name":"Buenos Aires Ciudad · Tejido Urbano","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · datos hasta 2021","url":"https://data.buenosaires.gob.ar/es/dataset/tejido-urbano"})
     payload = {
-        "source":"OpenStreetMap contributors + Buenos Aires Ciudad, Tejido Urbano",
-        "sources":[
-            {"name":"OpenStreetMap contributors","license":"ODbL 1.0","attribution":"© OpenStreetMap contributors"},
-            {"name":"Buenos Aires Ciudad · Tejido Urbano","license":"CC-BY-2.5-AR","attribution":"Buenos Aires Ciudad · datos hasta 2021","url":"https://data.buenosaires.gob.ar/es/dataset/tejido-urbano"}
-        ],
-        "license":"ODbL 1.0 + CC-BY-2.5-AR",
-        "attribution":"© OpenStreetMap contributors · Buenos Aires Ciudad",
+        "source":"OpenStreetMap contributors + Buenos Aires Ciudad Tejido Urbano",
+        "sources":sources,
+        "license":"ODbL 1.0 + CC-BY-2.5-AR" if counts["official_height_matches"] else "ODbL 1.0",
+        "attribution":"© OpenStreetMap contributors" + (" · Buenos Aires Ciudad" if counts["official_height_matches"] else ""),
         "retrievedAt":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
         "bbox":BBOX,"origin":ORIGIN,"counts":counts,"features":features
     }
@@ -160,5 +215,7 @@ def main():
     print(json.dumps({"output":str(OUT.relative_to(ROOT)),"bytes":OUT.stat().st_size,"counts":counts},ensure_ascii=False))
     if counts["buildings"] < 30 or counts["roads"] < 30:
         raise SystemExit("OSM extract unexpectedly sparse; refusing to publish an incomplete level.")
+    if counts["official_height_matches"] == 0:
+        print("WARNING: no official CABA building volumes were matched; this run will use OSM footprints and estimates.")
 
 if __name__ == "__main__": main()

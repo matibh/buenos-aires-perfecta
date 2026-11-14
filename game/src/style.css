@@ -26,3 +26,15 @@
 .compass-needle{position:absolute;left:50%;top:18px;width:0;height:0;transform:translateX(-50%);border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:17px solid #e46e59;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
 .compass-center{position:absolute;left:50%;top:50%;width:5px;height:5px;border-radius:50%;background:#f7f5ef;transform:translate(-50%,-50%);box-shadow:0 0 4px #000}
 @media(max-width:650px){.compass{top:76px;right:16px;width:62px;height:62px}.compass-north{top:5px}.compass-south{bottom:5px}.compass-east{right:6px}.compass-west{left:6px}.compass-needle{top:14px;border-left-width:5px;border-right-width:5px;border-bottom-width:14px}}
+
+/* Combat HUD */
+.combat-hud{position:absolute;left:5vw;right:5vw;top:94px;display:flex;justify-content:space-between;align-items:flex-start;opacity:0;transition:opacity .2s;text-shadow:0 2px 8px #000}
+.combat-hud.active{opacity:1}.combat-stats{display:flex;gap:8px}
+.combat-stats span,.weapon-readout{min-width:68px;padding:10px 13px;background:rgba(15,22,24,.76);border:1px solid rgba(255,255,255,.2);backdrop-filter:blur(10px)}
+.combat-stats small,.weapon-readout small{display:block;font-size:8px;letter-spacing:1.5px;color:#d8c8a8;margin-bottom:4px}
+.combat-stats b{font:800 20px Manrope,sans-serif}.combat-stats b.low{color:#ff7669}
+.weapon-readout{display:flex;align-items:center;gap:24px;min-width:210px}.weapon-readout strong{font:800 15px Manrope,sans-serif;letter-spacing:1px}
+.ammo{display:flex;align-items:baseline;gap:5px;margin-left:auto}.ammo b{font:800 24px Manrope,sans-serif}.ammo i{font-style:normal;color:rgba(255,255,255,.45)}.ammo span{font-size:12px;color:rgba(255,255,255,.7)}
+.combat-toast{position:absolute;top:23%;left:50%;transform:translate(-50%,-8px);padding:9px 15px;background:rgba(16,24,26,.78);border:1px solid rgba(255,255,255,.25);font:800 10px Manrope,sans-serif;letter-spacing:1.7px;opacity:0;transition:opacity .15s;white-space:nowrap}
+.combat-toast.visible{opacity:1}
+@media(max-width:650px){.combat-hud{left:10px;right:10px;top:78px}.combat-stats{gap:4px}.combat-stats span{min-width:48px;padding:7px}.combat-stats small,.weapon-readout small{font-size:7px}.combat-stats b{font-size:15px}.weapon-readout{min-width:155px;gap:10px;padding:7px}.weapon-readout strong{font-size:11px}.ammo b{font-size:19px}.ammo span{font-size:10px}.compass{top:155px}}
